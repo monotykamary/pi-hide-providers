@@ -9,6 +9,7 @@ import {
   formatRule,
   deduplicateRules,
 } from "./src/index.js";
+import { HideProviderSelectorComponent, type HideProviderSelectorResult } from "./src/provider-selector.js";
 import { readFileSync, writeFileSync, existsSync, mkdirSync } from "node:fs";
 import { join } from "node:path";
 import { homedir } from "node:os";
@@ -182,7 +183,7 @@ export default function (pi: ExtensionAPI) {
   pi.registerCommand("hide", {
     description: HIDE_COMMAND_DESCRIPTION,
     getArgumentCompletions(prefix: string) {
-      const subcommands = ["add", "remove", "list", "apply", "reset"];
+      const subcommands = ["add", "remove", "select", "list", "apply", "reset"];
       const matches = subcommands.filter((s) => s.startsWith(prefix));
       return matches.length > 0 ? matches.map((s) => ({ value: s, label: s })) : null;
     },
@@ -282,6 +283,12 @@ async function handleHideCommand(
     return;
   }
 
+  // /hide select — open interactive TUI selector
+  if (subcommand === "select") {
+    await showHideSelector(ctx, currentRules, setRules);
+    return;
+  }
+
   // /hide apply — notification (changes already active via patched methods)
   if (subcommand === "apply") {
     if (currentRules.length === 0) {
@@ -324,6 +331,7 @@ async function handleHideCommand(
         "  /hide list         Same as /hide",
         "  /hide add <rule>   Add a hide rule (e.g. ollama, openrouter/cheap-model)",
         "  /hide remove <rule> Remove a hide rule",
+        "  /hide select       Open interactive TUI to select providers/models to hide",
         "  /hide apply        Show current hide state",
         "  /hide reset        Unpatch registry — restore all models",
         "  /hide help         This message",
@@ -347,6 +355,70 @@ async function handleHideCommand(
     `Unknown subcommand: "${subcommand}". Use /hide help for usage.`,
     "warning",
   );
+}
+
+// Open the interactive TUI selector for hiding providers/models.
+async function showHideSelector(
+  ctx: ExtensionCommandContext,
+  currentRules: HideRule[],
+  setRules: (rules: HideRule[]) => void,
+): Promise<void> {
+  // Get all models from the unpatched registry (so we see everything)
+  const registry = ctx.modelRegistry as unknown as PatchedRegistry;
+  const allModels = registry.__hide_providers_orig_getAll?.() ?? ctx.modelRegistry.getAll();
+
+  const models = (allModels as any[]).map((m: any) => ({
+    provider: m.provider as string,
+    id: m.id as string,
+    name: (m.name ?? m.id) as string,
+  }));
+
+  const result = await ctx.ui.custom<HideProviderSelectorResult>(
+    (tui, theme, _kb, done) => {
+      const selector = new HideProviderSelectorComponent(
+        theme,
+        models,
+        currentRules,
+        (result) => done(result),
+      );
+
+      return {
+        render(width: number) {
+          return selector.render(width);
+        },
+        invalidate() {
+          selector.invalidate();
+        },
+        handleInput(data: string) {
+          selector.handleInput(data);
+          tui.requestRender();
+        },
+      };
+    },
+  );
+
+  if (!result || result.cancelled) {
+    ctx.ui.notify("Hide selector cancelled.", "info");
+    return;
+  }
+
+  // Apply the new rules
+  const newRules = result.rules;
+  const configPath = writeConfig(ctx.cwd, { hide: newRules });
+  setRules(newRules);
+
+  if (newRules.length === 0) {
+    // No rules left — unpatch the registry
+    unpatchRegistry(registry);
+    ctx.ui.notify("All models visible. Registry unpatched.", "info");
+  } else {
+    // Ensure the registry is patched
+    patchRegistry(registry, () => newRules);
+    ctx.ui.notify(
+      `Hide rules updated: ${newRules.length} rule(s) active (config: ${configPath})`,
+      "info",
+    );
+  }
 }
 
 // Count total models using the original (unpatched) getAll.
