@@ -1,14 +1,22 @@
-# pi-hide-providers
+<div align="center">
 
-Hide providers and models from [pi](https://github.com/badlogic/pi)'s model selector — filter the `/model` list and `Ctrl+P` cycling via a configurable blocklist.
+# 🔇 pi-hide-providers
 
-## The problem
+**Hide providers and models from [pi](https://github.com/badlogic/pi)'s model selector** — filter the `/model` list and `Ctrl+P` cycling via a configurable blocklist.
 
-Pi's model selector shows **every** available model from every configured provider. If you have Ollama running with 20 local models, or an OpenRouter account with hundreds of options, the model list becomes noisy and slow to navigate. There's no built-in way to say "I never want to see these providers/models in the selector."
+<img src="assets/demo.jpg" alt="pi-hide-providers interactive model selector" width="800">
 
-Pi has `enabledModels` in settings.json as an allowlist, but maintaining it manually is tedious — you have to list every model you *do* want, and clobber `settings.json` with hundreds of entries. What you really want is a **blocklist**: "hide everything from these providers, except the ones I explicitly use."
+</div>
 
-## The solution
+---
+
+## The Problem
+
+Pi's model selector shows **every** available model from every configured provider. If you have Ollama running with 20 local models, or an OpenRouter account with hundreds of options, the model list becomes noisy and slow to navigate. There's no built-in way to say *"I never want to see these providers/models in the selector."*
+
+Pi has `enabledModels` in `settings.json` as an allowlist, but maintaining it manually is tedious — you have to list every model you *do* want, and clobber `settings.json` with hundreds of entries. What you really want is a **blocklist**: *"hide everything from these providers, except the ones I explicitly use."*
+
+## The Solution
 
 `pi-hide-providers` gives you a blocklist that **completely removes** models from all lists — not an allowlist, not a scoped subset:
 
@@ -23,7 +31,7 @@ No `settings.json` is modified. No 250+ entry explosion. No allowlist semantics.
 
 ## Usage
 
-### Interactive commands
+### Interactive Commands
 
 | Command | What it does |
 |---------|-------------|
@@ -36,7 +44,7 @@ No `settings.json` is modified. No 250+ entry explosion. No allowlist semantics.
 | `/hide reset` | Unpatch registry — all models return immediately |
 | `/hide help` | Show usage reference |
 
-### Config file
+### Config File
 
 Create `~/.pi/agent/hide-providers.json` (global) or `.pi/hide-providers.json` (project-local):
 
@@ -50,7 +58,7 @@ Create `~/.pi/agent/hide-providers.json` (global) or `.pi/hide-providers.json` (
 }
 ```
 
-Rule formats:
+**Rule formats:**
 
 | Rule | Effect |
 |------|--------|
@@ -84,7 +92,7 @@ For quick one-off tests:
 pi -e ./hide-providers.ts
 ```
 
-## How it works
+## How It Works
 
 ```
 Session starts
@@ -111,12 +119,12 @@ The SDK doesn't provide a mechanism to remove models from the registry — `regi
 
 The patches survive `modelRegistry.refresh()` because they wrap the original methods. On reload, the extension detects the registry is already patched and just updates the rules source.
 
-## Comparison with alternatives
+## Comparison with Alternatives
 
 | Approach | Pros | Cons |
 |----------|------|------|
-| **pi-hide-providers** (this) | Blocklist — completely removes models from all lists; no settings.json writes; changes take effect immediately; survives refresh() | Monkey-patches modelRegistry methods (not an official SDK mechanism) |
-| `enabledModels` in settings.json (manual) | Built-in, no extension needed | Allowlist — must list every model you want individually; no blocklist support; clobbers settings with hundreds of entries |
+| **pi-hide-providers** (this) | Blocklist — completely removes models from all lists; no `settings.json` writes; changes take effect immediately; survives `refresh()` | Monkey-patches `modelRegistry` methods (not an official SDK mechanism) |
+| `enabledModels` in `settings.json` (manual) | Built-in, no extension needed | Allowlist — must list every model you want individually; no blocklist support; clobbers settings with hundreds of entries |
 | `--models` CLI flag | Per-session scoping | Must pass every time; no persistence |
 | `pi.unregisterProvider()` | Restores built-in models after override | Only works for providers registered via `pi.registerProvider()`; can't hide entire providers (empty models array is a no-op) |
 | `pi-model-router` scope shim | Dynamic scoping with routing | Heavyweight — full routing system just to filter the model list |
