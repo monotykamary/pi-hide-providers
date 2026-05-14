@@ -69,7 +69,7 @@ function writeConfig(cwd: string, config: HideProvidersConfig): string {
   return path;
 }
 
-// -- Monkey-patching helpers --
+// Monkey-patching helpers
 
 const PATCH_KEY = "__hide_providers_patched";
 
@@ -148,7 +148,7 @@ function unpatchRegistry(registry: PatchedRegistry): void {
   delete (registry as any).__hide_providers_orig_find;
 }
 
-// -- Extension --
+// Extension
 
 export default function (pi: ExtensionAPI) {
   let currentRules: HideRule[] = [];

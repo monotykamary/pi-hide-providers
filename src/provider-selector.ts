@@ -32,9 +32,7 @@ import {
   deduplicateRules,
 } from "./index.js";
 
-// ---------------------------------------------------------------------------
 // Internal state for one display row
-// ---------------------------------------------------------------------------
 
 interface DisplayItem {
   /** fullId = provider/id */
@@ -45,9 +43,7 @@ interface DisplayItem {
   hidden: boolean;
 }
 
-// ---------------------------------------------------------------------------
 // Component
-// ---------------------------------------------------------------------------
 
 export interface HideProviderSelectorResult {
   /** The final set of hide rules after the user closes the selector. */
@@ -57,17 +53,17 @@ export interface HideProviderSelectorResult {
 }
 
 export class HideProviderSelectorComponent implements Component {
-  // ---- injected dependencies ----
+  // injected dependencies
   private theme: Theme;
   private done: (result: HideProviderSelectorResult) => void;
 
-  // ---- model data ----
+  // model data
   private allItems: DisplayItem[] = [];
 
-  // ---- current hide rules ----
+  // current hide rules
   private hiddenRules: HideRule[] = [];
 
-  // ---- UI state ----
+  // UI state
   private filteredItems: DisplayItem[] = [];
   private selectedIndex = 0;
   private maxVisible = 10;
@@ -122,7 +118,7 @@ export class HideProviderSelectorComponent implements Component {
     this.updateList();
   }
 
-  // ---- Component interface ----
+  // Component interface
 
   render(width: number): string[] {
     const lines: string[] = [];
@@ -240,7 +236,7 @@ export class HideProviderSelectorComponent implements Component {
     this.footerText.invalidate();
   }
 
-  // ---- Internal helpers ----
+  // Internal helpers
 
   private getFilterTargets(): DisplayItem[] {
     const query = this.searchInput.getValue();
