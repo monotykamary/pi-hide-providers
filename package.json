@@ -1,0 +1,53 @@
+{
+  "name": "pi-hide-providers",
+  "version": "0.1.0",
+  "description": "Hide providers and models from pi's model selector — filter the /model list and Ctrl+P cycling via a configurable blocklist",
+  "type": "module",
+  "author": "Tom X Nguyen",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/monotykamary/pi-hide-providers.git"
+  },
+  "homepage": "https://github.com/monotykamary/pi-hide-providers#readme",
+  "bugs": {
+    "url": "https://github.com/monotykamary/pi-hide-providers/issues"
+  },
+  "keywords": [
+    "pi-package",
+    "pi",
+    "pi-coding-agent",
+    "extension",
+    "hide",
+    "provider",
+    "model",
+    "filter",
+    "blocklist",
+    "model-selector"
+  ],
+  "files": [
+    "*.ts",
+    "src/",
+    "README.md"
+  ],
+  "scripts": {
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "test:coverage": "vitest run --coverage",
+    "typecheck": "tsc --noEmit",
+    "lint:dead": "knip --no-gitignore"
+  },
+  "devDependencies": {
+    "@earendil-works/pi-coding-agent": "*",
+    "@types/node": "^25.5.0",
+    "@vitest/coverage-v8": "^4.1.4",
+    "knip": "^6.4.0",
+    "typescript": "^6.0.2",
+    "vitest": "^4.1.4"
+  },
+  "pi": {
+    "extensions": [
+      "./hide-providers.ts"
+    ]
+  }
+}
