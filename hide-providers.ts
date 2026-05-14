@@ -16,16 +16,13 @@ import { homedir } from "node:os";
 /**
  * pi-hide-providers — hide providers and models from pi's model selector.
  *
- * Strategy:
- *   - Reads a blocklist from ~/.pi/agent/hide-providers.json (or .pi/hide-providers.json)
- *   - On session_start, reads enabledModels from settings.json, computes the complement
- *     of hidden models, and writes back the allowlist to enabledModels
- *   - Provides /hide command for interactive management (add, remove, list, apply, reset)
- *   - model_select event blocks selection of hidden providers/models
+ * Strategy: monkey-patches modelRegistry accessor methods (getAvailable, getAll, find)
+ * to filter out models matched by hide rules.
  *
- * The extension uses the enabledModels setting as the mechanism to filter the /model
- * selector and Ctrl+P cycling. This is the same approach used by pi-model-router's
- * scope-shim, but as a dedicated, minimal extension.
+ * This is the only mechanism that completely removes models from ALL lists:
+ * the /model selector, Ctrl+P cycling, --list-models CLI, and session restoration.
+ * It survives modelRegistry.refresh() because our patches wrap the originals.
+ * No settings.json is touched — no 250+ entry explosion, no allowlist semantics.
  */
 
 // Config paths
@@ -71,104 +68,113 @@ function writeConfig(cwd: string, config: HideProvidersConfig): string {
   return path;
 }
 
-// Read settings.json
-interface Settings {
-  enabledModels?: string[];
-  [key: string]: unknown;
+// -- Monkey-patching helpers --
+
+const PATCH_KEY = "__hide_providers_patched";
+
+interface PatchedRegistry {
+  [PATCH_KEY]: boolean;
+  getAvailable(): unknown[];
+  getAll(): unknown[];
+  find(provider: string, modelId: string): unknown | undefined;
+  __hide_providers_get_rules: () => HideRule[];
+  __hide_providers_orig_getAvailable: () => unknown[];
+  __hide_providers_orig_getAll: () => unknown[];
+  __hide_providers_orig_find: (provider: string, modelId: string) => unknown | undefined;
 }
 
-function readSettings(settingsPath: string): Settings {
-  if (!existsSync(settingsPath)) return {};
-  try {
-    return JSON.parse(readFileSync(settingsPath, "utf8")) as Settings;
-  } catch {
-    return {};
-  }
-}
-
-function writeSettings(settingsPath: string, settings: Settings): void {
-  const dir = settingsPath.replace(/\/[^/]+$/, "");
-  if (!existsSync(dir)) {
-    mkdirSync(dir, { recursive: true });
-  }
-  writeFileSync(settingsPath, JSON.stringify(settings, null, 2) + "\n", "utf8");
-}
-
-// Build enabledModels allowlist from the full model list minus hidden rules
-function buildAllowlist(
-  allModels: ReadonlyArray<{ provider: string; id: string; name?: string }>,
-  rules: ReadonlyArray<HideRule>,
-): string[] {
-  const allowlist: string[] = [];
-
-  for (const model of allModels) {
-    if (!isHidden(rules, model.provider, model.id)) {
-      allowlist.push(`${model.provider}/${model.id}`);
-    }
+// Patch a model registry to filter out hidden models.
+// If already patched (e.g. after reload), just updates the rules source.
+function patchRegistry(
+  registry: PatchedRegistry,
+  getRules: () => HideRule[],
+): void {
+  if (registry[PATCH_KEY]) {
+    registry.__hide_providers_get_rules = getRules;
+    return;
   }
 
-  return allowlist;
+  registry[PATCH_KEY] = true;
+  registry.__hide_providers_get_rules = getRules;
+
+  // Save originals
+  registry.__hide_providers_orig_getAvailable = registry.getAvailable.bind(registry);
+  registry.__hide_providers_orig_getAll = registry.getAll.bind(registry);
+  registry.__hide_providers_orig_find = registry.find.bind(registry);
+
+  // Patch getAvailable — used by model selector, Ctrl+P cycle, resolveModelScope
+  registry.getAvailable = function (this: PatchedRegistry) {
+    const rules = this.__hide_providers_get_rules();
+    const all = this.__hide_providers_orig_getAvailable();
+    return all.filter(
+      (m: any) => !isHidden(rules, m.provider, m.id),
+    );
+  };
+
+  // Patch getAll — used by --list-models and CLI model resolution
+  registry.getAll = function (this: PatchedRegistry) {
+    const rules = this.__hide_providers_get_rules();
+    const all = this.__hide_providers_orig_getAll();
+    return all.filter(
+      (m: any) => !isHidden(rules, m.provider, m.id),
+    );
+  };
+
+  // Patch find — used by session restoration. Hides hidden models from being restored.
+  registry.find = function (
+    this: PatchedRegistry,
+    provider: string,
+    modelId: string,
+  ) {
+    const rules = this.__hide_providers_get_rules();
+    if (isHidden(rules, provider, modelId)) return undefined;
+    return this.__hide_providers_orig_find(provider, modelId);
+  };
 }
 
-// Apply hide rules to settings.json by computing and setting enabledModels
-function applyToSettings(
-  cwd: string,
-  models: ReadonlyArray<{ provider: string; id: string; name?: string }>,
-  rules: ReadonlyArray<HideRule>,
-  settingsPath: string,
-): { allowlist: string[]; hidden: number } {
-  const allowlist = buildAllowlist(models, rules);
-  const hidden = models.length - allowlist.length;
+// Restore original methods on a patched registry.
+function unpatchRegistry(registry: PatchedRegistry): void {
+  if (!registry[PATCH_KEY]) return;
 
-  const settings = readSettings(settingsPath);
-  settings.enabledModels = allowlist;
-  writeSettings(settingsPath, settings);
+  registry.getAvailable = registry.__hide_providers_orig_getAvailable;
+  registry.getAll = registry.__hide_providers_orig_getAll;
+  registry.find = registry.__hide_providers_orig_find;
 
-  return { allowlist, hidden };
+  delete (registry as any)[PATCH_KEY];
+  delete (registry as any).__hide_providers_get_rules;
+  delete (registry as any).__hide_providers_orig_getAvailable;
+  delete (registry as any).__hide_providers_orig_getAll;
+  delete (registry as any).__hide_providers_orig_find;
 }
 
-// Clear enabledModels from settings.json (restores "show all" behavior)
-function resetSettings(settingsPath: string): void {
-  const settings = readSettings(settingsPath);
-  delete settings.enabledModels;
-  writeSettings(settingsPath, settings);
-}
+// -- Extension --
 
 export default function (pi: ExtensionAPI) {
   let currentRules: HideRule[] = [];
-  let configPath: string = globalConfigPath;
 
-  // On session start, load config and auto-apply if rules exist
   pi.on("session_start", async (_event, ctx) => {
     const config = readConfig(ctx.cwd);
     currentRules = config.hide;
-    configPath = existsSync(getProjectConfigPath(ctx.cwd))
-      ? getProjectConfigPath(ctx.cwd)
-      : globalConfigPath;
 
     if (currentRules.length > 0) {
-      const available = ctx.modelRegistry.getAvailable();
-      const settingsPath = join(globalConfigDir, "settings.json");
-      const { hidden } = applyToSettings(ctx.cwd, available, currentRules, settingsPath);
+      patchRegistry(ctx.modelRegistry as unknown as PatchedRegistry, () => currentRules);
 
-      if (hidden > 0 && ctx.hasUI) {
+      if (ctx.hasUI) {
         ctx.ui.notify(
-          `pi-hide-providers: ${hidden} model(s) hidden (${currentRules.length} rule(s))`,
+          `pi-hide-providers: ${currentRules.length} rule(s) active — getAvailable/getAll/find patched to filter hidden models`,
           "info",
         );
       }
     }
   });
 
-  // Block selection of hidden providers/models
+  // Safety net: block selection of hidden models if they somehow show up
   pi.on("model_select", async (event, ctx) => {
     if (isHidden(currentRules, event.model.provider, event.model.id)) {
       ctx.ui.notify(
         `Blocked: ${event.model.provider}/${event.model.id} is hidden by pi-hide-providers`,
         "warning",
       );
-      // Return previous model selection unchanged by not taking further action.
-      // The model_select event is notification-only for extensions.
     }
   });
 
@@ -181,7 +187,7 @@ export default function (pi: ExtensionAPI) {
       return matches.length > 0 ? matches.map((s) => ({ value: s, label: s })) : null;
     },
     handler: async (args, ctx) => {
-      await handleHideCommand(pi, ctx, args.trim(), currentRules, (rules) => {
+      await handleHideCommand(ctx, args.trim(), currentRules, (rules) => {
         currentRules = rules;
       });
     },
@@ -189,7 +195,6 @@ export default function (pi: ExtensionAPI) {
 }
 
 async function handleHideCommand(
-  _pi: ExtensionAPI,
   ctx: ExtensionCommandContext,
   args: string,
   currentRules: HideRule[],
@@ -214,33 +219,48 @@ async function handleHideCommand(
   // /hide add <rule> — add a hide rule
   if (subcommand === "add") {
     if (!rest) {
-      ctx.ui.notify("Usage: /hide add <provider> | <provider/model-id> | <provider/*>", "warning");
+      ctx.ui.notify(
+        "Usage: /hide add <provider> | <provider/model-id> | <provider/*>",
+        "warning",
+      );
       return;
     }
 
     const rule = parseRule(rest);
     if (!rule) {
-      ctx.ui.notify(`Invalid rule: "${rest}". Use "provider" or "provider/model-id".`, "error");
+      ctx.ui.notify(
+        `Invalid rule: "${rest}". Use "provider" or "provider/model-id".`,
+        "error",
+      );
       return;
     }
 
     const updated = deduplicateRules([...currentRules, rule]);
     const configPath = writeConfig(ctx.cwd, { hide: updated });
     setRules(updated);
-    ctx.ui.notify(`Added: ${formatRule(rule)} (config: ${configPath})`, "info");
+    ctx.ui.notify(
+      `Added: ${formatRule(rule)} (config: ${configPath}). Changes take effect immediately.`,
+      "info",
+    );
     return;
   }
 
   // /hide remove <rule> — remove a hide rule
   if (subcommand === "remove") {
     if (!rest) {
-      ctx.ui.notify("Usage: /hide remove <provider> | <provider/model-id> | <provider/*>", "warning");
+      ctx.ui.notify(
+        "Usage: /hide remove <provider> | <provider/model-id> | <provider/*>",
+        "warning",
+      );
       return;
     }
 
     const rule = parseRule(rest);
     if (!rule) {
-      ctx.ui.notify(`Invalid rule: "${rest}". Use "provider" or "provider/model-id".`, "error");
+      ctx.ui.notify(
+        `Invalid rule: "${rest}". Use "provider" or "provider/model-id".`,
+        "error",
+      );
       return;
     }
 
@@ -255,33 +275,43 @@ async function handleHideCommand(
 
     writeConfig(ctx.cwd, { hide: updated });
     setRules(updated);
-    ctx.ui.notify(`Removed: ${key}`, "info");
-    return;
-  }
-
-  // /hide apply — recompute enabledModels from current rules + available models
-  if (subcommand === "apply") {
-    const available = ctx.modelRegistry.getAvailable();
-    const settingsPath = join(globalConfigDir, "settings.json");
-    const { allowlist, hidden } = applyToSettings(ctx.cwd, available, currentRules, settingsPath);
-
-    if (currentRules.length === 0) {
-      ctx.ui.notify("No hide rules configured. Use /hide add to create rules.", "warning");
-      return;
-    }
-
     ctx.ui.notify(
-      `Applied: ${allowlist.length} models visible, ${hidden} hidden (${currentRules.length} rule(s))`,
+      `Removed: ${key}. Changes take effect immediately.`,
       "info",
     );
     return;
   }
 
-  // /hide reset — clear enabledModels to restore "show all" behavior
+  // /hide apply — notification (changes already active via patched methods)
+  if (subcommand === "apply") {
+    if (currentRules.length === 0) {
+      ctx.ui.notify("No hide rules configured. Use /hide add to create rules.", "warning");
+      return;
+    }
+
+    const total = countTotalFromUnpatched(ctx);
+    const hidden = hiddenFromUnpatched(ctx, currentRules);
+
+    ctx.ui.notify(
+      `Applied: ${currentRules.length} rule(s) active — ${total - hidden} visible, ${hidden} hidden (registry methods are patched)`,
+      "info",
+    );
+    return;
+  }
+
+  // /hide reset — unpatch registry (takes effect immediately)
   if (subcommand === "reset") {
-    const settingsPath = join(globalConfigDir, "settings.json");
-    resetSettings(settingsPath);
-    ctx.ui.notify("Reset: all models now visible (enabledModels cleared)", "info");
+    const registry = ctx.modelRegistry as unknown as PatchedRegistry;
+    if (!registry[PATCH_KEY]) {
+      ctx.ui.notify("Registry is not patched. Nothing to reset.", "info");
+      return;
+    }
+
+    unpatchRegistry(registry);
+    ctx.ui.notify(
+      "Reset: registry unpatched — all models restored immediately.",
+      "info",
+    );
     return;
   }
 
@@ -294,47 +324,101 @@ async function handleHideCommand(
         "  /hide list         Same as /hide",
         "  /hide add <rule>   Add a hide rule (e.g. ollama, openrouter/cheap-model)",
         "  /hide remove <rule> Remove a hide rule",
-        "  /hide apply        Recompute enabledModels from current rules",
-        "  /hide reset        Clear enabledModels — show all models",
+        "  /hide apply        Show current hide state",
+        "  /hide reset        Unpatch registry — restore all models",
         "  /hide help         This message",
         "",
         "Rule formats:",
         '  "provider"           Hide entire provider',
         '  "provider/*"         Hide entire provider (explicit)',
         '  "provider/model-id"  Hide specific model',
+        "",
+        "Mechanism: monkey-patches modelRegistry.getAvailable(),",
+        "  getAll(), and find() to filter out hidden models.",
+        "  Takes effect immediately. No settings.json modifications.",
+        "  Survives refresh().",
       ].join("\n"),
       "info",
     );
     return;
   }
 
-  ctx.ui.notify(`Unknown subcommand: "${subcommand}". Use /hide help for usage.`, "warning");
+  ctx.ui.notify(
+    `Unknown subcommand: "${subcommand}". Use /hide help for usage.`,
+    "warning",
+  );
 }
 
-function showStatus(ctx: ExtensionCommandContext, rules: ReadonlyArray<HideRule>): void {
+// Count total models using the original (unpatched) getAll.
+function countTotalFromUnpatched(ctx: ExtensionCommandContext): number {
+  const registry = ctx.modelRegistry as unknown as PatchedRegistry;
+  const all = registry.__hide_providers_orig_getAll?.();
+  if (all) return all.length;
+  try {
+    return (ctx.modelRegistry.getAll() as any[]).length;
+  } catch {
+    return 0;
+  }
+}
+
+// Count hidden models using the original (unpatched) getAll.
+function hiddenFromUnpatched(
+  ctx: ExtensionCommandContext,
+  rules: ReadonlyArray<HideRule>,
+): number {
+  const registry = ctx.modelRegistry as unknown as PatchedRegistry;
+  const all = registry.__hide_providers_orig_getAll?.();
+  if (all) {
+    return (all as any[]).filter((m: any) => isHidden(rules, m.provider, m.id)).length;
+  }
+  try {
+    return (ctx.modelRegistry.getAll() as any[]).filter(
+      (m: any) => isHidden(rules, m.provider, m.id),
+    ).length;
+  } catch {
+    return 0;
+  }
+}
+
+function showStatus(
+  ctx: ExtensionCommandContext,
+  rules: ReadonlyArray<HideRule>,
+): void {
+  const lines: string[] = [];
+
   if (rules.length === 0) {
-    ctx.ui.notify("No hide rules configured. Use /hide add to create rules.", "info");
-    return;
+    lines.push("No hide rules configured. Use /hide add to create rules.");
+  } else {
+    lines.push(`Hide rules (${rules.length}):`);
+    for (let i = 0; i < rules.length; i++) {
+      lines.push(`  ${i + 1}. ${formatRule(rules[i])}`);
+    }
   }
 
-  const lines = [
-    `Hide rules (${rules.length}):`,
-    ...rules.map((r, i) => `  ${i + 1}. ${formatRule(r)}`),
-  ];
-
-  const available = ctx.modelRegistry.getAvailable();
-  const hidden = available.filter((m) => isHidden(rules, m.provider, m.id));
-
-  if (hidden.length > 0) {
+  const registry = ctx.modelRegistry as unknown as PatchedRegistry;
+  if (registry[PATCH_KEY]) {
     lines.push("");
-    lines.push(`Hidden models (${hidden.length}):`);
-    const preview = hidden.slice(0, 10);
-    for (const m of preview) {
-      lines.push(`  ${m.provider}/${m.id}`);
+    lines.push("Status: PATCHED — getAvailable/getAll/find filter hidden models");
+  }
+
+  try {
+    const all = registry.__hide_providers_orig_getAll?.() ?? [];
+    if (all.length > 0) {
+      const hidden = (all as any[]).filter((m: any) => isHidden(rules, m.provider, m.id));
+      lines.push("");
+      lines.push(`Models: ${all.length - hidden.length} visible, ${hidden.length} hidden`);
+      if (hidden.length > 0) {
+        const preview = hidden.slice(0, 10);
+        for (const m of preview) {
+          lines.push(`  ${m.provider}/${m.id}`);
+        }
+        if (hidden.length > 10) {
+          lines.push(`  ... and ${hidden.length - 10} more`);
+        }
+      }
     }
-    if (hidden.length > 10) {
-      lines.push(`  ... and ${hidden.length - 10} more`);
-    }
+  } catch {
+    // ignore
   }
 
   ctx.ui.notify(lines.join("\n"), "info");
