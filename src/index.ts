@@ -3,7 +3,7 @@
  */
 
 /** Description shown in the / commands list. */
-export const HIDE_COMMAND_DESCRIPTION = "Manage which providers/models are hidden from the model selector";
+export const HIDE_COMMAND_DESCRIPTION = "Manage which models are hidden from the model selector";
 
 /** Default config file name. */
 export const CONFIG_FILENAME = "hide-providers.json";

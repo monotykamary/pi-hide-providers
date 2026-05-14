@@ -23,9 +23,9 @@ Pi has `enabledModels` in `settings.json` as an allowlist, but maintaining it ma
 - Define hide rules in a config file (`~/.pi/agent/hide-providers.json` or `.pi/hide-providers.json`)
 - On session start, the extension monkey-patches `modelRegistry.getAvailable()`, `getAll()`, and `find()` to filter out hidden models
 - The `/model` selector, `Ctrl+P` cycling, `--list-models`, and session restoration all see only visible models
-- `/hide reset` unpatches the registry — all models return immediately
-- Changes via `/hide add` and `/hide remove` take effect immediately (no reload needed)
-- Interactive `/hide` command for adding, removing, and inspecting rules
+- `/hide-models reset` unpatches the registry — all models return immediately
+- Changes via `/hide-models add` and `/hide-models remove` take effect immediately (no reload needed)
+- Interactive `/hide-models` command for adding, removing, and inspecting rules
 
 No `settings.json` is modified. No 250+ entry explosion. No allowlist semantics.
 
@@ -35,14 +35,14 @@ No `settings.json` is modified. No 250+ entry explosion. No allowlist semantics.
 
 | Command | What it does |
 |---------|-------------|
-| `/hide` | Show current rules, patch status, and hidden model count |
-| `/hide add ollama` | Hide the entire `ollama` provider |
-| `/hide add openrouter/cheap-model` | Hide a specific model from `openrouter` |
-| `/hide add openrouter/*` | Hide the entire `openrouter` provider (explicit) |
-| `/hide remove ollama` | Remove the hide rule for `ollama` |
-| `/hide apply` | Show current hide state (changes are already active) |
-| `/hide reset` | Unpatch registry — all models return immediately |
-| `/hide help` | Show usage reference |
+| `/hide-models` | Show current rules, patch status, and hidden model count |
+| `/hide-models add ollama` | Hide the entire `ollama` provider |
+| `/hide-models add openrouter/cheap-model` | Hide a specific model from `openrouter` |
+| `/hide-models add openrouter/*` | Hide the entire `openrouter` provider (explicit) |
+| `/hide-models remove ollama` | Remove the hide rule for `ollama` |
+| `/hide-models apply` | Show current hide state (changes are already active) |
+| `/hide-models reset` | Unpatch registry — all models return immediately |
+| `/hide-models help` | Show usage reference |
 
 ### Config File
 
@@ -104,13 +104,13 @@ Session starts
   → All downstream consumers see only visible models:
       /model selector, Ctrl+P, --list-models, session restoration
 
-/hide add or /hide remove:
+/hide-models add or /hide-models remove:
   → Config updated on disk
   → currentRules updated in memory
   → Patched methods read latest rules via closure
   → Changes take effect immediately (no reload)
 
-/hide reset:
+/hide-models reset:
   → Unpatches registry (restores original methods)
   → All models return immediately
 ```

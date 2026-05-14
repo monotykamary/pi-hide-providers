@@ -179,8 +179,8 @@ export default function (pi: ExtensionAPI) {
     }
   });
 
-  // /hide command — interactive management
-  pi.registerCommand("hide", {
+  // /hide-models command — interactive management
+  pi.registerCommand("hide-models", {
     description: HIDE_COMMAND_DESCRIPTION,
     getArgumentCompletions(prefix: string) {
       const subcommands = ["add", "remove", "select", "list", "apply", "reset"];
@@ -205,23 +205,23 @@ async function handleHideCommand(
   const subcommand = parts[0]?.toLowerCase() ?? "";
   const rest = parts.slice(1).join(" ");
 
-  // /hide — show current status
+  // /hide-models — show current status
   if (!subcommand) {
     showStatus(ctx, currentRules);
     return;
   }
 
-  // /hide list — show rules
+  // /hide-models list — show rules
   if (subcommand === "list") {
     showStatus(ctx, currentRules);
     return;
   }
 
-  // /hide add <rule> — add a hide rule
+  // /hide-models add <rule> — add a hide rule
   if (subcommand === "add") {
     if (!rest) {
       ctx.ui.notify(
-        "Usage: /hide add <provider> | <provider/model-id> | <provider/*>",
+        "Usage: /hide-models add <provider> | <provider/model-id> | <provider/*>",
         "warning",
       );
       return;
@@ -246,11 +246,11 @@ async function handleHideCommand(
     return;
   }
 
-  // /hide remove <rule> — remove a hide rule
+  // /hide-models remove <rule> — remove a hide rule
   if (subcommand === "remove") {
     if (!rest) {
       ctx.ui.notify(
-        "Usage: /hide remove <provider> | <provider/model-id> | <provider/*>",
+        "Usage: /hide-models remove <provider> | <provider/model-id> | <provider/*>",
         "warning",
       );
       return;
@@ -283,16 +283,16 @@ async function handleHideCommand(
     return;
   }
 
-  // /hide select — open interactive TUI selector
+  // /hide-models select — open interactive TUI selector
   if (subcommand === "select") {
     await showHideSelector(ctx, currentRules, setRules);
     return;
   }
 
-  // /hide apply — notification (changes already active via patched methods)
+  // /hide-models apply — notification (changes already active via patched methods)
   if (subcommand === "apply") {
     if (currentRules.length === 0) {
-      ctx.ui.notify("No hide rules configured. Use /hide add to create rules.", "warning");
+      ctx.ui.notify("No hide rules configured. Use /hide-models add to create rules.", "warning");
       return;
     }
 
@@ -306,7 +306,7 @@ async function handleHideCommand(
     return;
   }
 
-  // /hide reset — unpatch registry (takes effect immediately)
+  // /hide-models reset — unpatch registry (takes effect immediately)
   if (subcommand === "reset") {
     const registry = ctx.modelRegistry as unknown as PatchedRegistry;
     if (!registry[PATCH_KEY]) {
@@ -322,19 +322,19 @@ async function handleHideCommand(
     return;
   }
 
-  // /hide help
+  // /hide-models help
   if (subcommand === "help") {
     ctx.ui.notify(
       [
         "pi-hide-providers commands:",
-        "  /hide              Show current rules and status",
-        "  /hide list         Same as /hide",
-        "  /hide add <rule>   Add a hide rule (e.g. ollama, openrouter/cheap-model)",
-        "  /hide remove <rule> Remove a hide rule",
-        "  /hide select       Open interactive TUI to select providers/models to hide",
-        "  /hide apply        Show current hide state",
-        "  /hide reset        Unpatch registry — restore all models",
-        "  /hide help         This message",
+        "  /hide-models              Show current rules and status",
+        "  /hide-models list         Same as /hide-models",
+        "  /hide-models add <rule>   Add a hide rule (e.g. ollama, openrouter/cheap-model)",
+        "  /hide-models remove <rule> Remove a hide rule",
+        "  /hide-models select       Open interactive TUI to select providers/models to hide",
+        "  /hide-models apply        Show current hide state",
+        "  /hide-models reset        Unpatch registry — restore all models",
+        "  /hide-models help         This message",
         "",
         "Rule formats:",
         '  "provider"           Hide entire provider',
@@ -352,7 +352,7 @@ async function handleHideCommand(
   }
 
   ctx.ui.notify(
-    `Unknown subcommand: "${subcommand}". Use /hide help for usage.`,
+    `Unknown subcommand: "${subcommand}". Use /hide-models help for usage.`,
     "warning",
   );
 }
@@ -459,7 +459,7 @@ function showStatus(
   const lines: string[] = [];
 
   if (rules.length === 0) {
-    lines.push("No hide rules configured. Use /hide add to create rules.");
+    lines.push("No hide rules configured. Use /hide-models add to create rules.");
   } else {
     lines.push(`Hide rules (${rules.length}):`);
     for (let i = 0; i < rules.length; i++) {
