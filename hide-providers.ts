@@ -183,7 +183,7 @@ export default function (pi: ExtensionAPI) {
   pi.registerCommand("hide-models", {
     description: HIDE_COMMAND_DESCRIPTION,
     getArgumentCompletions(prefix: string) {
-      const subcommands = ["add", "remove", "select", "list", "apply", "reset"];
+      const subcommands = ["add", "remove", "status", "list", "apply", "reset"];
       const matches = subcommands.filter((s) => s.startsWith(prefix));
       return matches.length > 0 ? matches.map((s) => ({ value: s, label: s })) : null;
     },
@@ -205,9 +205,9 @@ async function handleHideCommand(
   const subcommand = parts[0]?.toLowerCase() ?? "";
   const rest = parts.slice(1).join(" ");
 
-  // /hide-models — show current status
+  // /hide-models — open interactive TUI selector (default action)
   if (!subcommand) {
-    showStatus(ctx, currentRules);
+    await showHideSelector(ctx, currentRules, setRules);
     return;
   }
 
@@ -283,9 +283,9 @@ async function handleHideCommand(
     return;
   }
 
-  // /hide-models select — open interactive TUI selector
-  if (subcommand === "select") {
-    await showHideSelector(ctx, currentRules, setRules);
+  // /hide-models status — show current status
+  if (subcommand === "status") {
+    showStatus(ctx, currentRules);
     return;
   }
 
@@ -327,11 +327,11 @@ async function handleHideCommand(
     ctx.ui.notify(
       [
         "pi-hide-providers commands:",
-        "  /hide-models              Show current rules and status",
-        "  /hide-models list         Same as /hide-models",
+        "  /hide-models              Open interactive TUI to select providers/models to hide",
+        "  /hide-models status      Show current rules and status",
+        "  /hide-models list         Same as /hide-models status",
         "  /hide-models add <rule>   Add a hide rule (e.g. ollama, openrouter/cheap-model)",
         "  /hide-models remove <rule> Remove a hide rule",
-        "  /hide-models select       Open interactive TUI to select providers/models to hide",
         "  /hide-models apply        Show current hide state",
         "  /hide-models reset        Unpatch registry — restore all models",
         "  /hide-models help         This message",

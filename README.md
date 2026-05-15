@@ -25,7 +25,7 @@ Pi has `enabledModels` in `settings.json` as an allowlist, but maintaining it ma
 - The `/model` selector, `Ctrl+P` cycling, `--list-models`, and session restoration all see only visible models
 - `/hide-models reset` unpatches the registry — all models return immediately
 - Changes via `/hide-models add` and `/hide-models remove` take effect immediately (no reload needed)
-- Interactive `/hide-models` command for adding, removing, and inspecting rules
+- Interactive `/hide-models` command — no-args opens the TUI selector; subcommands for adding, removing, and inspecting rules
 
 No `settings.json` is modified. No 250+ entry explosion. No allowlist semantics.
 
@@ -35,11 +35,12 @@ No `settings.json` is modified. No 250+ entry explosion. No allowlist semantics.
 
 | Command | What it does |
 |---------|-------------|
-| `/hide-models` | Show current rules, patch status, and hidden model count |
+| `/hide-models` | Open interactive TUI to select providers/models to hide |
 | `/hide-models add ollama` | Hide the entire `ollama` provider |
 | `/hide-models add openrouter/cheap-model` | Hide a specific model from `openrouter` |
 | `/hide-models add openrouter/*` | Hide the entire `openrouter` provider (explicit) |
 | `/hide-models remove ollama` | Remove the hide rule for `ollama` |
+| `/hide-models status` | Show current rules, patch status, and hidden model count |
 | `/hide-models apply` | Show current hide state (changes are already active) |
 | `/hide-models reset` | Unpatch registry — all models return immediately |
 | `/hide-models help` | Show usage reference |
