@@ -72,7 +72,7 @@ Project config (`.pi/hide-providers.json`) takes priority over global config (`~
 ## Installation
 
 ```bash
-pi install git:github.com:monotykamary/pi-hide-providers.git
+pi install https://github.com/monotykamary/pi-hide-providers
 ```
 
 Or in `~/.pi/agent/settings.json`:
@@ -80,7 +80,7 @@ Or in `~/.pi/agent/settings.json`:
 ```json
 {
   "packages": [
-    "git:github.com:monotykamary/pi-hide-providers.git"
+    "https://github.com/monotykamary/pi-hide-providers"
   ]
 }
 ```
