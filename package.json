@@ -38,12 +38,12 @@
     "lint:dead": "knip --no-gitignore"
   },
   "devDependencies": {
-    "@earendil-works/pi-coding-agent": "*",
-    "@types/node": "^25.5.0",
-    "@vitest/coverage-v8": "^4.1.4",
-    "knip": "^6.4.0",
-    "typescript": "^6.0.2",
-    "vitest": "^4.1.4"
+    "@earendil-works/pi-coding-agent": "0.75.4",
+    "@types/node": "25.9.1",
+    "@vitest/coverage-v8": "4.1.7",
+    "knip": "6.14.1",
+    "typescript": "6.0.3",
+    "vitest": "4.1.7"
   },
   "pi": {
     "extensions": [
