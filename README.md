@@ -2,7 +2,12 @@
 
 # 🔇 pi-hide-providers
 
-**Hide providers and models from [pi](https://github.com/badlogic/pi)'s model selector** — filter the `/model` list and `Ctrl+P` cycling via a configurable blocklist.
+**Hide providers and models from the selector in [pi](https://github.com/earendil-works/pi-coding-agent)**
+
+_Filter the model picker so you only see the models you care about._
+
+[![pi extension](https://img.shields.io/badge/pi-extension-blueviolet)](https://github.com/earendil-works/pi-coding-agent)
+[![license](https://img.shields.io/badge/license-MIT-blue)](./LICENSE)
 
 <img src="assets/demo.jpg" alt="pi-hide-providers interactive model selector" width="800">
 
