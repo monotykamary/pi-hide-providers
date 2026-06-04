@@ -1,4 +1,5 @@
 import type { ExtensionAPI, ExtensionCommandContext } from "@earendil-works/pi-coding-agent";
+import { getAgentDir } from "@earendil-works/pi-coding-agent";
 import {
   HIDE_COMMAND_DESCRIPTION,
   CONFIG_FILENAME,
@@ -12,7 +13,6 @@ import {
 import { HideProviderSelectorComponent, type HideProviderSelectorResult } from "./src/provider-selector.js";
 import { readFileSync, writeFileSync, existsSync, mkdirSync } from "node:fs";
 import { join } from "node:path";
-import { homedir } from "node:os";
 
 /**
  * pi-hide-providers — hide providers and models from pi's model selector.
@@ -27,7 +27,7 @@ import { homedir } from "node:os";
  */
 
 // Config paths
-const globalConfigDir = join(homedir(), ".pi", "agent");
+const globalConfigDir = getAgentDir();
 const globalConfigPath = join(globalConfigDir, CONFIG_FILENAME);
 
 function getProjectConfigPath(cwd: string): string {
