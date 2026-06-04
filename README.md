@@ -76,8 +76,16 @@ Project config (`.pi/hide-providers.json`) takes priority over global config (`~
 
 ## Installation
 
+**With `pi install`** (recommended):
+
 ```bash
 pi install https://github.com/monotykamary/pi-hide-providers
+```
+
+**With npm**:
+
+```bash
+npm install pi-hide-providers
 ```
 
 Or in `~/.pi/agent/settings.json`:
