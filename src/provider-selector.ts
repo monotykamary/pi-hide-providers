@@ -28,6 +28,7 @@ import type { Theme } from "@earendil-works/pi-coding-agent";
 import { DynamicBorder, keyText } from "@earendil-works/pi-coding-agent";
 import {
   type HideRule,
+  PROVIDER_WILDCARD,
   isHidden,
   deduplicateRules,
 } from "./index.js";
@@ -369,12 +370,34 @@ export class HideProviderSelectorComponent implements Component {
   /** Toggle a single item between hidden and visible. */
   private toggleItem(item: DisplayItem): void {
     if (item.hidden) {
-      // Remove the matching rule
-      this.hiddenRules = this.hiddenRules.filter(
-        (r) =>
-          !(r.provider === item.provider &&
-            (r.model === item.modelId || r.model === undefined)),
+      // Check if a provider-level rule covers this item
+      const hasProviderRule = this.hiddenRules.some(
+        (r) => r.provider === item.provider && (r.model === undefined || r.model === PROVIDER_WILDCARD),
       );
+
+      if (hasProviderRule) {
+        // Remove the provider-level rule and add individual rules
+        // for every OTHER model in the provider (keeping them hidden)
+        this.hiddenRules = this.hiddenRules.filter(
+          (r) => !(r.provider === item.provider && (r.model === undefined || r.model === PROVIDER_WILDCARD)),
+        );
+
+        const siblingModelIds = this.allItems
+          .filter((i) => i.provider === item.provider && i.modelId !== item.modelId)
+          .map((i) => i.modelId);
+
+        for (const modelId of siblingModelIds) {
+          this.hiddenRules.push({ provider: item.provider, model: modelId });
+        }
+
+        this.hiddenRules = deduplicateRules(this.hiddenRules);
+      } else {
+        // Remove the specific model-level rule
+        this.hiddenRules = this.hiddenRules.filter(
+          (r) =>
+            !(r.provider === item.provider && r.model === item.modelId),
+        );
+      }
     } else {
       // Add a rule for this specific model
       this.hiddenRules = deduplicateRules([
@@ -442,12 +465,53 @@ export class HideProviderSelectorComponent implements Component {
 
   /** Remove hide rules for the given items. */
   private showModels(items: DisplayItem[]): void {
+    // Group by provider so we handle provider-level rules correctly
+    const byProvider = new Map<string, DisplayItem[]>();
     for (const item of items) {
-      this.hiddenRules = this.hiddenRules.filter(
-        (r) =>
-          !(r.provider === item.provider &&
-            (r.model === item.modelId || r.model === undefined)),
+      const list = byProvider.get(item.provider) ?? [];
+      list.push(item);
+      byProvider.set(item.provider, list);
+    }
+
+    for (const [provider, shownItems] of byProvider) {
+      const allProviderItems = this.allItems.filter((i) => i.provider === provider);
+      const hasProviderRule = this.hiddenRules.some(
+        (r) => r.provider === provider && (r.model === undefined || r.model === PROVIDER_WILDCARD),
       );
+
+      if (hasProviderRule) {
+        const shownIds = new Set(shownItems.map((i) => i.modelId));
+        const allShown = shownIds.size === allProviderItems.length;
+
+        if (allShown) {
+          // Showing every model in the provider — just drop the provider rule
+          this.hiddenRules = this.hiddenRules.filter(
+            (r) => !(r.provider === provider && (r.model === undefined || r.model === PROVIDER_WILDCARD)),
+          );
+        } else {
+          // Partial — replace provider rule with individual rules for models still hidden
+          this.hiddenRules = this.hiddenRules.filter(
+            (r) => !(r.provider === provider && (r.model === undefined || r.model === PROVIDER_WILDCARD)),
+          );
+
+          const stillHiddenIds = allProviderItems
+            .filter((i) => !shownIds.has(i.modelId))
+            .map((i) => i.modelId);
+
+          for (const modelId of stillHiddenIds) {
+            this.hiddenRules.push({ provider, model: modelId });
+          }
+
+          this.hiddenRules = deduplicateRules(this.hiddenRules);
+        }
+      } else {
+        // No provider-level rule — just remove specific model rules
+        for (const item of shownItems) {
+          this.hiddenRules = this.hiddenRules.filter(
+            (r) => !(r.provider === item.provider && r.model === item.modelId),
+          );
+        }
+      }
     }
   }
 
