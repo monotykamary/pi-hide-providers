@@ -103,6 +103,8 @@ export class HideProviderSelectorComponent implements Component {
         hidden: isHidden(currentRules, m.provider, m.id),
       });
     }
+    // Enabled (visible) providers/models first, then alphabetical within each group
+    this.sortItems(this.allItems);
     this.filteredItems = [...this.allItems];
 
     this.searchInput = new Input();
@@ -268,6 +270,15 @@ export class HideProviderSelectorComponent implements Component {
 
   private refresh(): void {
     const query = this.searchInput.getValue();
+
+    // Recompute hidden status on the canonical full list first, then sort it.
+    // This ensures both allItems and filteredItems stay ordered as enabled
+    // (visible) models first, disabled (hidden) models second.
+    for (const item of this.allItems) {
+      item.hidden = isHidden(this.hiddenRules, item.provider, item.modelId);
+    }
+    this.sortItems(this.allItems);
+
     this.filteredItems = query
       ? fuzzyFilter(
           this.allItems,
@@ -276,16 +287,40 @@ export class HideProviderSelectorComponent implements Component {
         )
       : [...this.allItems];
 
-    // Update hidden status on all items (rules may have changed)
-    for (const item of this.filteredItems) {
-      item.hidden = isHidden(this.hiddenRules, item.provider, item.modelId);
-    }
+    // Ensure filtered results also honor enabled-first ordering.
+    this.sortItems(this.filteredItems);
 
+    // Keep the cursor at the same relative position after re-sorting. The
+    // selected model may change, which matches pi's /scoped-models behavior.
     this.selectedIndex = Math.min(
       this.selectedIndex,
       Math.max(0, this.filteredItems.length - 1),
     );
+
     this.updateList();
+  }
+
+  /** Sort items so enabled (visible) models come before disabled (hidden)
+   *  models, then alphabetically by provider and model id. Each model is ranked
+   *  individually — a single visible model in a provider does not pull the whole
+   *  provider to the top.
+   */
+  private sortItems(items: DisplayItem[]): void {
+    items.sort((a, b) => {
+      // Visible models first, then hidden models.
+      if (a.hidden !== b.hidden) {
+        return a.hidden ? 1 : -1;
+      }
+
+      // Then alphabetical by provider.
+      const providerCompare = a.provider.localeCompare(b.provider);
+      if (providerCompare !== 0) {
+        return providerCompare;
+      }
+
+      // Then alphabetical by model id.
+      return a.modelId.localeCompare(b.modelId);
+    });
   }
 
   private updateList(): void {

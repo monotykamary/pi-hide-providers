@@ -30,7 +30,8 @@ Pi has `enabledModels` in `settings.json` as an allowlist, but maintaining it ma
 - The `/model` selector, `Ctrl+P` cycling, `--list-models`, and session restoration all see only visible models
 - `/hide-models reset` unpatches the registry — all models return immediately
 - Changes via `/hide-models add` and `/hide-models remove` take effect immediately (no reload needed)
-- Interactive `/hide-models` command — no-args opens the TUI selector; subcommands for adding, removing, and inspecting rules
+- Interactive `/hide-models` TUI lists visible providers/models first, re-sorting as you hide or show items — same ordering behavior as pi core's `/scoped-models`
+- `/hide-models` subcommands for adding, removing, and inspecting rules
 
 No `settings.json` is modified. No 250+ entry explosion. No allowlist semantics.
 
