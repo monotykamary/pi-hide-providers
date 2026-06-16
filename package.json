@@ -1,7 +1,7 @@
 {
   "name": "pi-hide-providers",
-  "version": "0.1.3",
-  "description": "Hide providers and models from pi's model selector \u2014 filter the /model list and Ctrl+P cycling via a configurable blocklist",
+  "version": "0.1.4",
+  "description": "Hide providers and models from pi's model selector — filter the /model list and Ctrl+P cycling via a configurable blocklist",
   "type": "module",
   "author": "Tom X Nguyen",
   "license": "MIT",
