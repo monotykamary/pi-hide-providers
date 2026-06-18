@@ -61,6 +61,10 @@ export class HideProviderSelectorComponent implements Component {
   // model data
   private allItems: DisplayItem[] = [];
 
+  // visible model fullIds in the order they were unhidden (mirrors pi core's
+  // enabledIds cycle order in the scoped models selector)
+  private visibleIds: string[] = [];
+
   // current hide rules
   private hiddenRules: HideRule[] = [];
 
@@ -93,7 +97,7 @@ export class HideProviderSelectorComponent implements Component {
     this.done = done;
     this.hiddenRules = deduplicateRules(currentRules);
 
-    // Build display items
+    // Build display items in the original registry order.
     for (const m of allModels) {
       this.allItems.push({
         fullId: `${m.provider}/${m.id}`,
@@ -103,9 +107,12 @@ export class HideProviderSelectorComponent implements Component {
         hidden: isHidden(currentRules, m.provider, m.id),
       });
     }
-    // Enabled (visible) providers/models first, then alphabetical within each group
-    this.sortItems(this.allItems);
-    this.filteredItems = [...this.allItems];
+    // Track visible models in original order initially; toggle order changes
+    // during the session, matching pi core's /scoped-models behavior.
+    this.visibleIds = this.allItems
+      .filter((i) => !i.hidden)
+      .map((i) => i.fullId);
+    this.filteredItems = this.buildItems();
 
     this.searchInput = new Input();
     this.listContainer = new Container();
@@ -271,27 +278,24 @@ export class HideProviderSelectorComponent implements Component {
   private refresh(): void {
     const query = this.searchInput.getValue();
 
-    // Recompute hidden status on the canonical full list first, then sort it.
-    // This ensures both allItems and filteredItems stay ordered as enabled
-    // (visible) models first, disabled (hidden) models second.
+    // Recompute hidden status, then rebuild the list in pi core's order:
+    // visible models in user-toggle order, followed by hidden models in
+    // original registry order.
     for (const item of this.allItems) {
       item.hidden = isHidden(this.hiddenRules, item.provider, item.modelId);
     }
-    this.sortItems(this.allItems);
 
+    const items = this.buildItems();
     this.filteredItems = query
       ? fuzzyFilter(
-          this.allItems,
+          items,
           query,
           (i) => `${i.provider} ${i.modelId} ${i.provider}/${i.modelId} ${i.modelName}`,
         )
-      : [...this.allItems];
+      : items;
 
-    // Ensure filtered results also honor enabled-first ordering.
-    this.sortItems(this.filteredItems);
-
-    // Keep the cursor at the same relative position after re-sorting. The
-    // selected model may change, which matches pi's /scoped-models behavior.
+    // Keep the cursor at the same numeric index after re-sorting. The selected
+    // model may change, matching pi core's /scoped-models behavior.
     this.selectedIndex = Math.min(
       this.selectedIndex,
       Math.max(0, this.filteredItems.length - 1),
@@ -300,27 +304,30 @@ export class HideProviderSelectorComponent implements Component {
     this.updateList();
   }
 
-  /** Sort items so enabled (visible) models come before disabled (hidden)
-   *  models, then alphabetically by provider and model id. Each model is ranked
-   *  individually — a single visible model in a provider does not pull the whole
-   *  provider to the top.
+  /** Build the display order used by pi core's scoped models selector:
+   *  visible models first in the order they were unhidden, then hidden models
+   *  in their original registry order.
    */
-  private sortItems(items: DisplayItem[]): void {
-    items.sort((a, b) => {
-      // Visible models first, then hidden models.
-      if (a.hidden !== b.hidden) {
-        return a.hidden ? 1 : -1;
-      }
+  private buildItems(): DisplayItem[] {
+    const visibleSet = new Set(this.visibleIds);
+    const result: DisplayItem[] = [];
 
-      // Then alphabetical by provider.
-      const providerCompare = a.provider.localeCompare(b.provider);
-      if (providerCompare !== 0) {
-        return providerCompare;
+    // Visible models in user-toggle order.
+    for (const fullId of this.visibleIds) {
+      const item = this.allItems.find((i) => i.fullId === fullId);
+      if (item && !item.hidden) {
+        result.push(item);
       }
+    }
 
-      // Then alphabetical by model id.
-      return a.modelId.localeCompare(b.modelId);
-    });
+    // Hidden models in original registry order.
+    for (const item of this.allItems) {
+      if (item.hidden && !visibleSet.has(item.fullId)) {
+        result.push(item);
+      }
+    }
+
+    return result;
   }
 
   private updateList(): void {
@@ -433,12 +440,20 @@ export class HideProviderSelectorComponent implements Component {
             !(r.provider === item.provider && r.model === item.modelId),
         );
       }
+
+      // Newly visible model goes to the end of the visible order (pi core).
+      if (!this.visibleIds.includes(item.fullId)) {
+        this.visibleIds.push(item.fullId);
+      }
     } else {
       // Add a rule for this specific model
       this.hiddenRules = deduplicateRules([
         ...this.hiddenRules,
         { provider: item.provider, model: item.modelId },
       ]);
+
+      // Remove from the visible order.
+      this.visibleIds = this.visibleIds.filter((id) => id !== item.fullId);
     }
     this.hasChanges = true;
     this.refresh();
@@ -456,12 +471,25 @@ export class HideProviderSelectorComponent implements Component {
       this.hiddenRules = this.hiddenRules.filter(
         (r) => r.provider !== provider,
       );
+
+      // Append newly visible provider models to the end of the visible order
+      // in original registry order (pi core).
+      const providerIds = providerItems.map((i) => i.fullId);
+      this.visibleIds = [
+        ...this.visibleIds,
+        ...providerIds.filter((id) => !this.visibleIds.includes(id)),
+      ];
     } else {
       // Hide all — add a single provider-level rule
       this.hiddenRules = deduplicateRules([
         ...this.hiddenRules,
         { provider },
       ]);
+
+      // Remove provider models from the visible order.
+      this.visibleIds = this.visibleIds.filter(
+        (id) => !providerItems.some((i) => i.fullId === id),
+      );
     }
     this.hasChanges = true;
     this.refresh();
@@ -496,6 +524,10 @@ export class HideProviderSelectorComponent implements Component {
         }
       }
     }
+
+    // Remove hidden models from the visible order.
+    const hiddenFullIds = new Set(items.map((i) => i.fullId));
+    this.visibleIds = this.visibleIds.filter((id) => !hiddenFullIds.has(id));
   }
 
   /** Remove hide rules for the given items. */
@@ -546,6 +578,13 @@ export class HideProviderSelectorComponent implements Component {
             (r) => !(r.provider === item.provider && r.model === item.modelId),
           );
         }
+      }
+    }
+
+    // Append newly visible models to the end of the visible order (pi core).
+    for (const item of items) {
+      if (!this.visibleIds.includes(item.fullId)) {
+        this.visibleIds.push(item.fullId);
       }
     }
   }
