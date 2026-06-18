@@ -1,6 +1,6 @@
 {
   "name": "pi-hide-providers",
-  "version": "0.1.4",
+  "version": "0.1.5",
   "description": "Hide providers and models from pi's model selector — filter the /model list and Ctrl+P cycling via a configurable blocklist",
   "type": "module",
   "author": "Tom X Nguyen",
