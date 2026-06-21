@@ -51,5 +51,6 @@
       "./hide-providers.ts"
     ]
   },
-  "peerDependencies": {}
+  "peerDependencies": {},
+  "packageManager": "pnpm@11.6.0"
 }
