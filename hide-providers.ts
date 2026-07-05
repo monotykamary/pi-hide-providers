@@ -159,13 +159,6 @@ export default function (pi: ExtensionAPI) {
 
     if (currentRules.length > 0) {
       patchRegistry(ctx.modelRegistry as unknown as PatchedRegistry, () => currentRules);
-
-      if (ctx.hasUI) {
-        ctx.ui.notify(
-          `pi-hide-providers: ${currentRules.length} rule(s) active — getAvailable/getAll/find patched to filter hidden models`,
-          "info",
-        );
-      }
     }
   });
 
