@@ -1,5 +1,5 @@
 import type { ExtensionAPI, ExtensionCommandContext } from "@earendil-works/pi-coding-agent";
-import { getAgentDir } from "@earendil-works/pi-coding-agent";
+import { getAgentDir, CONFIG_DIR_NAME } from "@earendil-works/pi-coding-agent";
 import {
   HIDE_COMMAND_DESCRIPTION,
   CONFIG_FILENAME,
@@ -31,7 +31,7 @@ const globalConfigDir = getAgentDir();
 const globalConfigPath = join(globalConfigDir, CONFIG_FILENAME);
 
 function getProjectConfigPath(cwd: string): string {
-  return join(cwd, ".pi", CONFIG_FILENAME);
+  return join(cwd, CONFIG_DIR_NAME, CONFIG_FILENAME);
 }
 
 // Read config from disk (project overrides global)
@@ -59,7 +59,7 @@ function readConfig(cwd: string): HideProvidersConfig {
 function writeConfig(cwd: string, config: HideProvidersConfig): string {
   const projectPath = getProjectConfigPath(cwd);
   const path = existsSync(getProjectConfigPath(cwd)) ? projectPath : globalConfigPath;
-  const dir = path === projectPath ? join(cwd, ".pi") : globalConfigDir;
+  const dir = path === projectPath ? join(cwd, CONFIG_DIR_NAME) : globalConfigDir;
 
   if (!existsSync(dir)) {
     mkdirSync(dir, { recursive: true });
