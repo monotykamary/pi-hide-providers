@@ -366,6 +366,48 @@ async function showHideSelector(
     name: (m.name ?? m.id) as string,
   }));
 
+  if (ctx.mode !== "tui") {
+    if (!ctx.hasUI) {
+      ctx.ui.notify("/hide-models requires a UI (TUI or GUI).", "error");
+      return;
+    }
+    if (models.length === 0) {
+      ctx.ui.notify("No models found.", "warning");
+      return;
+    }
+    const items = models.map((m) => {
+      const hidden = isHidden(currentRules, m.provider, m.id);
+      return `${m.name} (${formatRule({ provider: m.provider, model: m.id })}): ${hidden ? "hidden" : "visible"}`;
+    });
+    const pick = await ctx.ui.select("Hide models \u2014 pick a model to toggle", items);
+    if (pick === undefined) return;
+    const idx = items.indexOf(pick);
+    if (idx < 0) return;
+    const m = models[idx];
+    if (!m) return;
+    const matches = (r: HideRule) => r.provider === m.provider && r.model === m.id;
+    const hasExact = currentRules.some(matches);
+    const newRules = hasExact
+      ? currentRules.filter((r) => !matches(r))
+      : deduplicateRules([...currentRules, { provider: m.provider, model: m.id }]);
+    const configPath = writeConfig(ctx.cwd, { hide: newRules });
+    setRules(newRules);
+    if (newRules.length === 0) {
+      unpatchRegistry(registry);
+      ctx.ui.notify(
+        `Model ${m.name} visible. All models visible — registry unpatched (config: ${configPath}). Run /hide-models again for more.`,
+        "info",
+      );
+    } else {
+      patchRegistry(registry, () => newRules);
+      ctx.ui.notify(
+        `Model ${m.name} ${hasExact ? "visible" : "hidden"}. ${newRules.length} rule(s) active (config: ${configPath}). Run /hide-models again for more.`,
+        "info",
+      );
+    }
+    return;
+  }
+
   const result = await ctx.ui.custom<HideProviderSelectorResult>(
     (tui, theme, _kb, done) => {
       const selector = new HideProviderSelectorComponent(
