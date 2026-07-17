@@ -11,18 +11,25 @@ import {
   deduplicateRules,
 } from "./src/index.js";
 import { HideProviderSelectorComponent, type HideProviderSelectorResult } from "./src/provider-selector.js";
+import {
+  getUnfilteredModels,
+  isRegistryPatched,
+  patchRegistry,
+  type PatchedRegistry,
+  unpatchRegistry,
+} from "./src/model-filter.js";
 import { readFileSync, writeFileSync, existsSync, mkdirSync } from "node:fs";
 import { join } from "node:path";
 
 /**
  * pi-hide-providers — hide providers and models from pi's model selector.
  *
- * Strategy: monkey-patches modelRegistry accessor methods (getAvailable, getAll, find)
- * to filter out models matched by hide rules.
+ * Strategy: monkey-patches the ModelRuntime accessors used by current pi, with
+ * a ModelRegistry fallback for older releases, to filter models matched by hide rules.
  *
- * This is the only mechanism that completely removes models from ALL lists:
+ * This completely removes models from ALL lists:
  * the /model selector, Ctrl+P cycling, --list-models CLI, and session restoration.
- * It survives modelRegistry.refresh() because our patches wrap the originals.
+ * It survives catalog refreshes because the patches wrap accessors, not snapshots.
  * No settings.json is touched — no 250+ entry explosion, no allowlist semantics.
  */
 
@@ -69,85 +76,6 @@ function writeConfig(cwd: string, config: HideProvidersConfig): string {
   return path;
 }
 
-// Monkey-patching helpers
-
-const PATCH_KEY = "__hide_providers_patched";
-
-interface PatchedRegistry {
-  [PATCH_KEY]: boolean;
-  getAvailable(): unknown[];
-  getAll(): unknown[];
-  find(provider: string, modelId: string): unknown | undefined;
-  __hide_providers_get_rules: () => HideRule[];
-  __hide_providers_orig_getAvailable: () => unknown[];
-  __hide_providers_orig_getAll: () => unknown[];
-  __hide_providers_orig_find: (provider: string, modelId: string) => unknown | undefined;
-}
-
-// Patch a model registry to filter out hidden models.
-// If already patched (e.g. after reload), just updates the rules source.
-function patchRegistry(
-  registry: PatchedRegistry,
-  getRules: () => HideRule[],
-): void {
-  if (registry[PATCH_KEY]) {
-    registry.__hide_providers_get_rules = getRules;
-    return;
-  }
-
-  registry[PATCH_KEY] = true;
-  registry.__hide_providers_get_rules = getRules;
-
-  // Save originals
-  registry.__hide_providers_orig_getAvailable = registry.getAvailable.bind(registry);
-  registry.__hide_providers_orig_getAll = registry.getAll.bind(registry);
-  registry.__hide_providers_orig_find = registry.find.bind(registry);
-
-  // Patch getAvailable — used by model selector, Ctrl+P cycle, resolveModelScope
-  registry.getAvailable = function (this: PatchedRegistry) {
-    const rules = this.__hide_providers_get_rules();
-    const all = this.__hide_providers_orig_getAvailable();
-    return all.filter(
-      (m: any) => !isHidden(rules, m.provider, m.id),
-    );
-  };
-
-  // Patch getAll — used by --list-models and CLI model resolution
-  registry.getAll = function (this: PatchedRegistry) {
-    const rules = this.__hide_providers_get_rules();
-    const all = this.__hide_providers_orig_getAll();
-    return all.filter(
-      (m: any) => !isHidden(rules, m.provider, m.id),
-    );
-  };
-
-  // Patch find — used by session restoration. Hides hidden models from being restored.
-  registry.find = function (
-    this: PatchedRegistry,
-    provider: string,
-    modelId: string,
-  ) {
-    const rules = this.__hide_providers_get_rules();
-    if (isHidden(rules, provider, modelId)) return undefined;
-    return this.__hide_providers_orig_find(provider, modelId);
-  };
-}
-
-// Restore original methods on a patched registry.
-function unpatchRegistry(registry: PatchedRegistry): void {
-  if (!registry[PATCH_KEY]) return;
-
-  registry.getAvailable = registry.__hide_providers_orig_getAvailable;
-  registry.getAll = registry.__hide_providers_orig_getAll;
-  registry.find = registry.__hide_providers_orig_find;
-
-  delete (registry as any)[PATCH_KEY];
-  delete (registry as any).__hide_providers_get_rules;
-  delete (registry as any).__hide_providers_orig_getAvailable;
-  delete (registry as any).__hide_providers_orig_getAll;
-  delete (registry as any).__hide_providers_orig_find;
-}
-
 // Extension
 
 export default function (pi: ExtensionAPI) {
@@ -157,8 +85,11 @@ export default function (pi: ExtensionAPI) {
     const config = readConfig(ctx.cwd);
     currentRules = config.hide;
 
+    const registry = ctx.modelRegistry as unknown as PatchedRegistry;
     if (currentRules.length > 0) {
-      patchRegistry(ctx.modelRegistry as unknown as PatchedRegistry, () => currentRules);
+      patchRegistry(registry, () => currentRules);
+    } else {
+      unpatchRegistry(registry);
     }
   });
 
@@ -232,6 +163,7 @@ async function handleHideCommand(
     const updated = deduplicateRules([...currentRules, rule]);
     const configPath = writeConfig(ctx.cwd, { hide: updated });
     setRules(updated);
+    patchRegistry(ctx.modelRegistry as unknown as PatchedRegistry, () => updated);
     ctx.ui.notify(
       `Added: ${formatRule(rule)} (config: ${configPath}). Changes take effect immediately.`,
       "info",
@@ -269,6 +201,9 @@ async function handleHideCommand(
 
     writeConfig(ctx.cwd, { hide: updated });
     setRules(updated);
+    const registry = ctx.modelRegistry as unknown as PatchedRegistry;
+    if (updated.length > 0) patchRegistry(registry, () => updated);
+    else unpatchRegistry(registry);
     ctx.ui.notify(
       `Removed: ${key}. Changes take effect immediately.`,
       "info",
@@ -299,17 +234,17 @@ async function handleHideCommand(
     return;
   }
 
-  // /hide-models reset — unpatch registry (takes effect immediately)
+  // /hide-models reset — remove model filters (takes effect immediately)
   if (subcommand === "reset") {
     const registry = ctx.modelRegistry as unknown as PatchedRegistry;
-    if (!registry[PATCH_KEY]) {
-      ctx.ui.notify("Registry is not patched. Nothing to reset.", "info");
+    if (!isRegistryPatched(registry)) {
+      ctx.ui.notify("Model accessors are not patched. Nothing to reset.", "info");
       return;
     }
 
     unpatchRegistry(registry);
     ctx.ui.notify(
-      "Reset: registry unpatched — all models restored immediately.",
+      "Reset: model filters removed — all models restored immediately.",
       "info",
     );
     return;
@@ -326,7 +261,7 @@ async function handleHideCommand(
         "  /hide-models add <rule>   Add a hide rule (e.g. ollama, openrouter/cheap-model)",
         "  /hide-models remove <rule> Remove a hide rule",
         "  /hide-models apply        Show current hide state",
-        "  /hide-models reset        Unpatch registry — restore all models",
+        "  /hide-models reset        Remove model filters — restore all models",
         "  /hide-models help         This message",
         "",
         "Rule formats:",
@@ -334,8 +269,8 @@ async function handleHideCommand(
         '  "provider/*"         Hide entire provider (explicit)',
         '  "provider/model-id"  Hide specific model',
         "",
-        "Mechanism: monkey-patches modelRegistry.getAvailable(),",
-        "  getAll(), and find() to filter out hidden models.",
+        "Mechanism: patches ModelRuntime model accessors (or ModelRegistry",
+        "  on older pi versions) to filter out hidden models.",
         "  Takes effect immediately. No settings.json modifications.",
         "  Survives refresh().",
       ].join("\n"),
@@ -358,7 +293,7 @@ async function showHideSelector(
 ): Promise<void> {
   // Get all models from the unpatched registry (so we see everything)
   const registry = ctx.modelRegistry as unknown as PatchedRegistry;
-  const allModels = registry.__hide_providers_orig_getAll?.() ?? ctx.modelRegistry.getAll();
+  const allModels = getUnfilteredModels(registry);
 
   const models = (allModels as any[]).map((m: any) => ({
     provider: m.provider as string,
@@ -395,7 +330,7 @@ async function showHideSelector(
     if (newRules.length === 0) {
       unpatchRegistry(registry);
       ctx.ui.notify(
-        `Model ${m.name} visible. All models visible — registry unpatched (config: ${configPath}). Run /hide-models again for more.`,
+        `Model ${m.name} visible. All models visible — filters removed (config: ${configPath}). Run /hide-models again for more.`,
         "info",
       );
     } else {
@@ -456,32 +391,27 @@ async function showHideSelector(
   }
 }
 
-// Count total models using the original (unpatched) getAll.
+// Count total models using the original unfiltered accessor.
 function countTotalFromUnpatched(ctx: ExtensionCommandContext): number {
   const registry = ctx.modelRegistry as unknown as PatchedRegistry;
-  const all = registry.__hide_providers_orig_getAll?.();
-  if (all) return all.length;
   try {
-    return (ctx.modelRegistry.getAll() as any[]).length;
+    return getUnfilteredModels(registry).length;
   } catch {
     return 0;
   }
 }
 
-// Count hidden models using the original (unpatched) getAll.
+// Count hidden models using the original unfiltered accessor.
 function hiddenFromUnpatched(
   ctx: ExtensionCommandContext,
   rules: ReadonlyArray<HideRule>,
 ): number {
   const registry = ctx.modelRegistry as unknown as PatchedRegistry;
-  const all = registry.__hide_providers_orig_getAll?.();
-  if (all) {
-    return (all as any[]).filter((m: any) => isHidden(rules, m.provider, m.id)).length;
-  }
   try {
-    return (ctx.modelRegistry.getAll() as any[]).filter(
-      (m: any) => isHidden(rules, m.provider, m.id),
-    ).length;
+    return getUnfilteredModels(registry).filter((model) => {
+      const m = model as { provider: string; id: string };
+      return isHidden(rules, m.provider, m.id);
+    }).length;
   } catch {
     return 0;
   }
@@ -503,13 +433,13 @@ function showStatus(
   }
 
   const registry = ctx.modelRegistry as unknown as PatchedRegistry;
-  if (registry[PATCH_KEY]) {
+  if (isRegistryPatched(registry)) {
     lines.push("");
-    lines.push("Status: PATCHED — getAvailable/getAll/find filter hidden models");
+    lines.push("Status: PATCHED — model accessors filter hidden models");
   }
 
   try {
-    const all = registry.__hide_providers_orig_getAll?.() ?? [];
+    const all = getUnfilteredModels(registry);
     if (all.length > 0) {
       const hidden = (all as any[]).filter((m: any) => isHidden(rules, m.provider, m.id));
       lines.push("");

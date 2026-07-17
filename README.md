@@ -26,9 +26,9 @@ Pi has `enabledModels` in `settings.json` as an allowlist, but maintaining it ma
 `pi-hide-providers` gives you a blocklist that **completely removes** models from all lists — not an allowlist, not a scoped subset:
 
 - Define hide rules in a config file (`~/.pi/agent/hide-providers.json` or `.pi/hide-providers.json`)
-- On session start, the extension monkey-patches `modelRegistry.getAvailable()`, `getAll()`, and `find()` to filter out hidden models
+- On session start, the extension patches pi’s underlying `ModelRuntime` accessors (with a `ModelRegistry` fallback for older pi versions) to filter out hidden models
 - The `/model` selector, `Ctrl+P` cycling, `--list-models`, and session restoration all see only visible models
-- `/hide-models reset` unpatches the registry — all models return immediately
+- `/hide-models reset` removes the runtime/registry patch — all models return immediately
 - Changes via `/hide-models add` and `/hide-models remove` take effect immediately (no reload needed)
 - Interactive `/hide-models` TUI lists visible models first in user-toggle order, then hidden models in their original registry order, and keeps the cursor at the same index after each toggle — matching pi core's `/scoped-models` UX
 - `/hide-models` subcommands for adding, removing, and inspecting rules
@@ -118,33 +118,33 @@ pi -e ./hide-providers.ts
 ```
 Session starts
   → Extension reads hide-providers.json
-  → Monkey-patches modelRegistry:
-      getAvailable() → original result filtered by isHidden()
-      getAll()       → original result filtered by isHidden()
-      find(p, m)    → returns undefined if isHidden(p, m)
+  → Patches ModelRuntime (current pi) or ModelRegistry (older pi):
+      available model reads → original result filtered by isHidden()
+      all model reads       → original result filtered by isHidden()
+      model lookup(p, m)    → returns undefined if isHidden(p, m)
   → All downstream consumers see only visible models:
       /model selector, Ctrl+P, --list-models, session restoration
 
 /hide-models add or /hide-models remove:
   → Config updated on disk
   → currentRules updated in memory
-  → Patched methods read latest rules via closure
+  → Patched runtime/registry methods read latest rules via closure
   → Changes take effect immediately (no reload)
 
 /hide-models reset:
-  → Unpatches registry (restores original methods)
+  → Restores the original model accessors
   → All models return immediately
 ```
 
 The SDK doesn't provide a mechanism to remove models from the registry — `registerProvider({ models: [] })` is treated as "no models to register" (override-only), not "remove all models." Monkey-patching the accessor methods is the only way to completely remove models from all lists without touching `settings.json`.
 
-The patches survive `modelRegistry.refresh()` because they wrap the original methods. On reload, the extension detects the registry is already patched and just updates the rules source.
+The patches survive model catalog refreshes because they wrap the runtime accessors rather than a model snapshot. On reload, the extension detects an existing patch and updates its rules source.
 
 ## Comparison with Alternatives
 
 | Approach | Pros | Cons |
 |----------|------|------|
-| **pi-hide-providers** (this) | Blocklist — completely removes models from all lists; no `settings.json` writes; changes take effect immediately; survives `refresh()` | Monkey-patches `modelRegistry` methods (not an official SDK mechanism) |
+| **pi-hide-providers** (this) | Blocklist — completely removes models from all lists; no `settings.json` writes; changes take effect immediately; survives catalog refresh | Monkey-patches internal model accessors (not an official SDK mechanism) |
 | `enabledModels` in `settings.json` (manual) | Built-in, no extension needed | Allowlist — must list every model you want individually; no blocklist support; clobbers settings with hundreds of entries |
 | `--models` CLI flag | Per-session scoping | Must pass every time; no persistence |
 | `pi.unregisterProvider()` | Restores built-in models after override | Only works for providers registered via `pi.registerProvider()`; can't hide entire providers (empty models array is a no-op) |
