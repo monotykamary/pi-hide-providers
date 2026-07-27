@@ -23,6 +23,8 @@ import {
   matchesKey,
   Spacer,
   Text,
+  truncateToWidth,
+  wrapTextWithAnsi,
 } from "@earendil-works/pi-tui";
 import type { Theme } from "@earendil-works/pi-coding-agent";
 import { DynamicBorder, keyText } from "@earendil-works/pi-coding-agent";
@@ -135,11 +137,20 @@ export class HideProviderSelectorComponent implements Component {
 
     lines.push(...new DynamicBorder((s) => this.theme.fg("accent", s)).render(width));
     lines.push("");
-    lines.push(this.theme.fg("accent", this.theme.bold("Hide Provider Configuration")));
     lines.push(
-      this.theme.fg(
-        "muted",
-        `Select providers or models to hide from the model selector.`,
+      truncateToWidth(
+        this.theme.fg("accent", this.theme.bold("Hide Provider Configuration")),
+        width,
+        "",
+      ),
+    );
+    lines.push(
+      ...wrapTextWithAnsi(
+        this.theme.fg(
+          "muted",
+          `Select providers or models to hide from the model selector.`,
+        ),
+        width,
       ),
     );
     lines.push("");
@@ -150,7 +161,7 @@ export class HideProviderSelectorComponent implements Component {
     lines.push(...this.footerText.render(width));
     lines.push(...new DynamicBorder((s) => this.theme.fg("accent", s)).render(width));
 
-    return lines;
+    return lines.map((line) => truncateToWidth(line, width, ""));
   }
 
   handleInput(data: string): void {

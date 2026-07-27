@@ -1,12 +1,12 @@
 {
   "name": "pi-hide-providers",
-  "version": "0.1.5",
+  "version": "0.1.10",
   "lockfileVersion": 3,
   "requires": true,
   "packages": {
     "": {
       "name": "pi-hide-providers",
-      "version": "0.1.5",
+      "version": "0.1.10",
       "license": "MIT",
       "devDependencies": {
         "@earendil-works/pi-coding-agent": "0.79.4",
