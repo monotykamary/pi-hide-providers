@@ -56,6 +56,44 @@ describe("isHidden", () => {
   });
 });
 
+describe("isHidden with glob patterns", () => {
+  const rules: HideRule[] = [{ provider: "github-copilot", model: "gpt-3.5*" }];
+
+  it("hides a model family by prefix glob", () => {
+    expect(isHidden(rules, "github-copilot", "gpt-3.5")).toBe(true);
+    expect(isHidden(rules, "github-copilot", "gpt-3.5-turbo")).toBe(true);
+    expect(isHidden(rules, "github-copilot", "gpt-3.5-turbo-0125")).toBe(true);
+  });
+
+  it("does not leak a glob across providers or to unrelated models", () => {
+    expect(isHidden(rules, "openai", "gpt-3.5-turbo")).toBe(false);
+    expect(isHidden(rules, "github-copilot", "gpt-4o")).toBe(false);
+  });
+
+  it("supports contains globs", () => {
+    const preview: HideRule[] = [{ provider: "openrouter", model: "*preview*" }];
+    expect(isHidden(preview, "openrouter", "gemini-2.5-preview")).toBe(true);
+    expect(isHidden(preview, "openrouter", "gemini-2.5-flash")).toBe(false);
+  });
+
+  it("supports single-character globs", () => {
+    const q: HideRule[] = [{ provider: "ollama", model: "llama3.?" }];
+    expect(isHidden(q, "ollama", "llama3.1")).toBe(true);
+    expect(isHidden(q, "ollama", "llama3.11")).toBe(false);
+  });
+
+  it("treats non-wildcard characters literally", () => {
+    const dotted: HideRule[] = [{ provider: "google", model: "gemini-2.5.flash" }];
+    expect(isHidden(dotted, "google", "gemini-2.5-flash")).toBe(false);
+    expect(isHidden(dotted, "google", "gemini-2.5.flash")).toBe(true);
+  });
+
+  it("keeps the bare wildcard as hide-entire-provider", () => {
+    const star: HideRule[] = [{ provider: "ollama", model: PROVIDER_WILDCARD }];
+    expect(isHidden(star, "ollama", "anything")).toBe(true);
+  });
+});
+
 // parseRule
 
 describe("parseRule", () => {

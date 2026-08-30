@@ -31,6 +31,7 @@ Pi has `enabledModels` in `settings.json` as an allowlist, but maintaining it ma
 - `/hide-models reset` removes the runtime/registry patch — all models return immediately
 - Changes via `/hide-models add` and `/hide-models remove` take effect immediately (no reload needed)
 - Interactive `/hide-models` TUI lists visible models first in user-toggle order, then hidden models in their original registry order, and keeps the cursor at the same index after each toggle — matching pi core's `/scoped-models` UX
+- `model` fields accept glob patterns — `"gpt-3.5*"` hides the whole family, `"*preview*"` hides every preview variant — so one rule can cover dated aliases and future models that follow the same naming convention
 - `/hide-models` subcommands for adding, removing, and inspecting rules
 
 No `settings.json` is modified. No 250+ entry explosion. No allowlist semantics.

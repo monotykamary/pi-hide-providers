@@ -17,6 +17,8 @@ export interface HideRule {
   /**
    * Model id pattern to hide within the provider.
    * Use "*" to hide all models from the provider.
+   * Use glob wildcards — "*" matches any run of characters, "?" matches exactly
+   * one — to hide a model family, e.g. "gpt-3.5*" or "*preview*".
    * Omit or leave undefined to hide the entire provider.
    */
   model?: string;
@@ -28,11 +30,35 @@ export interface HideProvidersConfig {
 }
 
 /**
+ * Translate a model-id glob into an anchored, case-sensitive RegExp.
+ *
+ * "*" matches any run of characters (including none), "?" matches exactly one,
+ * and every other character matches literally. Glob matching is scoped to the
+ * model id — the provider must still match the rule exactly.
+ */
+function modelPatternToRegExp(pattern: string): RegExp {
+  let source = "";
+  for (const char of pattern) {
+    if (char === "*") source += ".*";
+    else if (char === "?") source += ".";
+    else source += char.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  }
+  return new RegExp(`^${source}$`);
+}
+
+function matchesModelPattern(pattern: string, modelId: string): boolean {
+  if (pattern === PROVIDER_WILDCARD) return true;
+  if (!pattern.includes("*") && !pattern.includes("?")) return pattern === modelId;
+  return modelPatternToRegExp(pattern).test(modelId);
+}
+
+/**
  * Check whether a model is matched by any hide rule.
  *
  * A rule matches when:
  * - rule.provider === model.provider (exact, case-sensitive)
- * - AND (rule.model is undefined OR rule.model === "*" OR rule.model === model.id)
+ * - AND rule.model is undefined (hide entire provider), or matches the model id
+ *   — either as the "*" wildcard, an exact id, or a glob pattern ("*"/"?").
  */
 export function isHidden(
   rules: ReadonlyArray<HideRule>,
@@ -42,7 +68,7 @@ export function isHidden(
   return rules.some(
     (rule) =>
       rule.provider === provider &&
-      (rule.model === undefined || rule.model === PROVIDER_WILDCARD || rule.model === modelId),
+      (rule.model === undefined || matchesModelPattern(rule.model, modelId)),
   );
 }
 
