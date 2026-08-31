@@ -50,6 +50,5 @@
     "extensions": [
       "./hide-providers.ts"
     ]
-  },
-  "packageManager": "pnpm@11.20.0"
+  }
 }
