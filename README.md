@@ -179,3 +179,9 @@ npm run lint:dead # Dead code detection (knip)
 ## License
 
 MIT
+
+## Pi 0.99 compatibility (0.1.21)
+
+Filters the actual 0.99 ModelRuntime and scoped-selector fallback entries. Auth/cancellation arguments are forwarded; filtering composes with model sorting and restores on shutdown. Custom screens propagate IME focus.
+
+Tested with Pi 0.99.0. Host-provided Pi packages are wildcard peers, not bundled dependencies; development uses exact 0.99.0 versions.

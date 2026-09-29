@@ -1,5 +1,5 @@
 import type { ExtensionAPI, ExtensionCommandContext } from "@earendil-works/pi-coding-agent";
-import { getAgentDir, CONFIG_DIR_NAME } from "@earendil-works/pi-coding-agent";
+import { getAgentDir, CONFIG_DIR_NAME, ModelSelectorComponent } from "@earendil-works/pi-coding-agent";
 import {
   HIDE_COMMAND_DESCRIPTION,
   CONFIG_FILENAME,
@@ -76,16 +76,39 @@ function writeConfig(cwd: string, config: HideProvidersConfig): string {
   return path;
 }
 
+import { installMethodPatch } from "./src/method-patch.js";
+
 // Extension
 
 export default function (pi: ExtensionAPI) {
   let currentRules: HideRule[] = [];
+  let activeRegistry: PatchedRegistry | undefined;
+  let restoreSelector: (() => void) | undefined;
+  pi.on("session_shutdown", () => {
+    if (activeRegistry) unpatchRegistry(activeRegistry);
+    activeRegistry = undefined;
+    restoreSelector?.();
+    restoreSelector = undefined;
+  });
 
   pi.on("session_start", async (_event, ctx) => {
     const config = readConfig(ctx.cwd);
     currentRules = config.hide;
 
     const registry = ctx.modelRegistry as unknown as PatchedRegistry;
+    if (activeRegistry && activeRegistry !== registry) unpatchRegistry(activeRegistry);
+    activeRegistry = registry;
+    if (ctx.mode === "tui" && !restoreSelector) {
+      restoreSelector = installMethodPatch(ModelSelectorComponent.prototype, "loadModelsFromSnapshot", function (original, ...args) {
+        // Pi keeps unavailable scoped models as fallback items. Filter that
+        // input as well as the runtime snapshot, without destroying the scope.
+        const scoped = this.scopedModels;
+        this.scopedModels = scoped.filter((item: { model: { provider: string; id: string } }) =>
+          !isHidden(currentRules, item.model.provider, item.model.id));
+        try { return original.apply(this, args); }
+        finally { this.scopedModels = scoped; }
+      });
+    }
     if (currentRules.length > 0) {
       patchRegistry(registry, () => currentRules);
     } else {
@@ -353,6 +376,8 @@ async function showHideSelector(
       );
 
       return {
+        get focused() { return selector.focused; },
+        set focused(value: boolean) { selector.focused = value; },
         render(width: number) {
           return selector.render(width);
         },
