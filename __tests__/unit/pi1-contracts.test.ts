@@ -4,7 +4,7 @@ import extension from "../../hide-providers.js";
 import { patchRegistry, unpatchRegistry } from "../../src/model-filter.js";
 import { installMethodPatch } from "../../src/method-patch.js";
 
-it("forwards 0.99 auth/cancellation options through asynchronous filtering", async () => {
+it("forwards 1.0 auth/cancellation options through asynchronous filtering", async () => {
   const getAvailable = vi.fn(async (..._args: any[]) => [{ provider: "p", id: "m" }]);
   const runtime = { getModels: () => [], getModel: () => undefined, getAvailableSnapshot: () => [], getAvailable };
   const registry = { runtime, getAll: () => [], getAvailable: () => [], find: () => undefined };

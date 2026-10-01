@@ -5,7 +5,7 @@ import { ModelSelectorComponent } from "@earendil-works/pi-coding-agent";
 import extension from "../../hide-providers.js";
 
 it("filters native unavailable scoped fallbacks and restores on shutdown/restart", async () => {
-  const root = resolve(".tmp/pi99-scoped"); mkdirSync(root + "/.pi", { recursive: true });
+  const root = resolve(".tmp/pi1-scoped"); mkdirSync(root + "/.pi", { recursive: true });
   writeFileSync(root + "/.pi/hide-providers.json", JSON.stringify({ hide: [{ provider: "hidden" }] }));
   const handlers = new Map<string, any>();
   extension({ on: (n: string, f: any) => handlers.set(n, f), registerCommand() {} } as any);

@@ -180,6 +180,13 @@ npm run lint:dead # Dead code detection (knip)
 
 MIT
 
+## Pi 1.0 compatibility (0.1.22)
+
+Tested against Pi **1.0.0** with exact SDK development pins and wildcard host peers.
+Native ModelRuntime filtering, scoped fallbacks and selector restoration are verified in both host layouts.
+
+Run `bun run test:host` for the offline real-host regression. Set `PI1_HOST_PACKAGE` to an installed Pi package directory and `PI1_HOST_ENTRY=bundle` to test its bundled CLI runtime.
+
 ## Pi 0.99 compatibility (0.1.21)
 
 Filters the actual 0.99 ModelRuntime and scoped-selector fallback entries. Auth/cancellation arguments are forwarded; filtering composes with model sorting and restores on shutdown. Custom screens propagate IME focus.
