@@ -1,5 +1,6 @@
-// Offline native and bundled Pi 1.0 load, TUI behavior and cleanup probe.
+// Offline native and bundled Pi 1.1.0 load, TUI behavior and cleanup probe.
 import assert from 'node:assert/strict';
+import { visibleWidth } from '@earendil-works/pi-tui';
 import { mkdtempSync, mkdirSync, readFileSync, writeFileSync, rmSync } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
@@ -13,8 +14,8 @@ process.env.PI_FABRIC_PARENT_RUN = '';
 const host = process.env.PI1_HOST_PACKAGE;
 const hostEntry = process.env.PI1_HOST_ENTRY === 'bundle' ? 'dist/bundle/index.js' : 'dist/index.js';
 const sdk = await import(host ? pathToFileURL(join(host, hostEntry)).href : '@earendil-works/pi-coding-agent');
-assert.equal(sdk.VERSION, '1.0.0');
-assert.equal((await import('@earendil-works/pi-coding-agent')).VERSION, '1.0.0');
+assert.equal(sdk.VERSION, '1.1.0');
+assert.equal((await import('@earendil-works/pi-coding-agent')).VERSION, '1.1.0');
 const constructors = ['AgentSession', 'InteractiveMode', 'ModelSelectorComponent', 'FooterComponent', 'CustomEditor'];
 globalThis[Symbol.for('pi1.ui.host')] = sdk;
 const identity = join(root, 'identity.ts');
@@ -37,7 +38,7 @@ try {
   for (const [i, [p, key]] of targets.entries()) assert.equal(p[key], originals[i], 'headless must not patch UI');
   sdk.initTheme('dark', false);
   let factory, customCalls = 0;
-  const ui = { ...session.extensionRunner.createContext().ui, theme: session.extensionRunner.createContext().ui.theme, notify() {}, getEditorComponent: () => factory, setEditorComponent: f => { factory = f; }, custom: async create => { customCalls++; const c = create({ requestRender() {}, terminal: { rows: 30, columns: 80 } }, session.extensionRunner.createContext().ui.theme, {}, () => {}); c.focused = true; c.invalidate(); assert(Array.isArray(c.render(80))); c.dispose?.(); return undefined; } };
+  const ui = { ...session.extensionRunner.createContext().ui, theme: session.extensionRunner.createContext().ui.theme, notify() {}, getEditorComponent: () => factory, setEditorComponent: f => { factory = f; }, custom: async create => { customCalls++; const c = create({ requestRender() {}, terminal: { rows: 30, columns: 80 } }, session.extensionRunner.createContext().ui.theme, {}, () => {}); c.focused = true; for (const width of [30, 80]) { c.invalidate(); const lines = c.render(width); assert(Array.isArray(lines)); for (const line of lines) assert(visibleWidth(line) <= width, `custom UI overflow at ${width}`); } c.dispose?.(); return undefined; } };
   session.extensionRunner.setUIContext(ui, 'tui');
   await session.extensionRunner.emit({ type: 'session_start', reason: 'reload' });
   assert.notEqual(sdk.ModelSelectorComponent.prototype.loadModelsFromSnapshot, originals[3]);
@@ -46,6 +47,8 @@ try {
   assert.deepEqual(runtime.getModels('anthropic'), []);
   await owned.commands.get('hide-models').handler('remove anthropic', ctx);
   assert(runtime.getModels('anthropic').length > 0);
+  await owned.commands.get('hide-models').handler('', ctx);
+  assert.equal(customCalls, 1, 'native hide selector renders at narrow and normal widths');
   await session.extensionRunner.emit({ type: 'session_shutdown', reason: 'quit' });
   assert.deepEqual(errors, []);
   for (const [i, [p, key]] of targets.entries()) assert.equal(p[key], originals[i], 'shutdown restores ' + key);
