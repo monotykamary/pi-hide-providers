@@ -1,5 +1,5 @@
 import type { ExtensionAPI, ExtensionCommandContext } from "@earendil-works/pi-coding-agent";
-import { getAgentDir, CONFIG_DIR_NAME, ModelSelectorComponent } from "@earendil-works/pi-coding-agent";
+import { getAgentDir, CONFIG_DIR_NAME, ModelSelectorComponent, ModelRuntime } from "@earendil-works/pi-coding-agent";
 import {
   HIDE_COMMAND_DESCRIPTION,
   CONFIG_FILENAME,
@@ -13,8 +13,10 @@ import {
 import { HideProviderSelectorComponent, type HideProviderSelectorResult } from "./src/provider-selector.js";
 import {
   getUnfilteredModels,
+  installRuntimePrototypePatch,
   isRegistryPatched,
   patchRegistry,
+  suspendPrototypeFilters,
   type PatchedRegistry,
   unpatchRegistry,
 } from "./src/model-filter.js";
@@ -81,7 +83,9 @@ import { installMethodPatch } from "./src/method-patch.js";
 // Extension
 
 export default function (pi: ExtensionAPI) {
-  let currentRules: HideRule[] = [];
+  // Read config eagerly: `pi --list-models` (and other pre-session paths) exit
+  // before session_start ever fires, so rules must be known at load time.
+  let currentRules: HideRule[] = readConfig(process.cwd()).hide;
   let activeRegistry: PatchedRegistry | undefined;
   let restoreSelector: (() => void) | undefined;
   pi.on("session_shutdown", () => {
@@ -94,7 +98,6 @@ export default function (pi: ExtensionAPI) {
   pi.on("session_start", async (_event, ctx) => {
     const config = readConfig(ctx.cwd);
     currentRules = config.hide;
-
     const registry = ctx.modelRegistry as unknown as PatchedRegistry;
     if (activeRegistry && activeRegistry !== registry) unpatchRegistry(activeRegistry);
     activeRegistry = registry;
@@ -115,6 +118,16 @@ export default function (pi: ExtensionAPI) {
       unpatchRegistry(registry);
     }
   });
+
+  // Patch ModelRuntime.prototype at load time so hide rules also apply to model
+  // access that happens before session_start — notably `pi --list-models`, which
+  // loads extensions but exits before any session event is emitted. Best-effort:
+  // on runtimes without these methods we fall back to session_start patching.
+  try {
+    installRuntimePrototypePatch(ModelRuntime, () => currentRules);
+  } catch {
+    // Prototype patching unsupported — instance patching still applies.
+  }
 
   // Safety net: block selection of hidden models if they somehow show up
   pi.on("model_select", async (event, ctx) => {
@@ -266,6 +279,7 @@ async function handleHideCommand(
     }
 
     unpatchRegistry(registry);
+    suspendPrototypeFilters();
     ctx.ui.notify(
       "Reset: model filters removed — all models restored immediately.",
       "info",

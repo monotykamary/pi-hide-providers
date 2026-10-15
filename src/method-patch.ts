@@ -6,6 +6,16 @@ function unwrap(method: Wrapped): Method {
   while (method[PATCH] && !method[PATCH]!.active) method = method[PATCH]!.original;
   return method;
 }
+/**
+ * Walk the patch chain to the deepest original, regardless of whether
+ * intermediate patches are still active. Used to reach truly unfiltered
+ * model accessors even when prototype-level patches are installed.
+ */
+export function fullyUnwrap(method: Wrapped): Method {
+  let current = method;
+  while (typeof current === "function" && current[PATCH]) current = current[PATCH]!.original;
+  return current;
+}
 export function installMethodPatch(target: any, name: string, handler: (this: any, original: Method, ...args: any[]) => any): () => void {
   const original = target[name] as Method;
   if (typeof original !== "function") throw new Error(`Pi model contract missing: ${name}`);
