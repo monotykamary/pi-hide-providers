@@ -1,4 +1,4 @@
-// Offline native and bundled Pi 1.2.0 load, TUI behavior and cleanup probe.
+// Offline native and bundled Pi 1.3.0 load, TUI behavior and cleanup probe.
 import assert from 'node:assert/strict';
 import { visibleWidth } from '@earendil-works/pi-tui';
 import { mkdtempSync, mkdirSync, readFileSync, writeFileSync, rmSync } from 'node:fs';
@@ -14,8 +14,8 @@ process.env.PI_FABRIC_PARENT_RUN = '';
 const host = process.env.PI1_HOST_PACKAGE;
 const hostEntry = process.env.PI1_HOST_ENTRY === 'bundle' ? 'dist/bundle/index.js' : 'dist/index.js';
 const sdk = await import(host ? pathToFileURL(join(host, hostEntry)).href : '@earendil-works/pi-coding-agent');
-assert.equal(sdk.VERSION, '1.2.0');
-assert.equal((await import('@earendil-works/pi-coding-agent')).VERSION, '1.2.0');
+assert.equal(sdk.VERSION, '1.3.0');
+assert.equal((await import('@earendil-works/pi-coding-agent')).VERSION, '1.3.0');
 const constructors = ['AgentSession', 'InteractiveMode', 'ModelSelectorComponent', 'FooterComponent', 'CustomEditor'];
 globalThis[Symbol.for('pi1.ui.host')] = sdk;
 const identity = join(root, 'identity.ts');
