@@ -26,7 +26,8 @@ Pi has `enabledModels` in `settings.json` as an allowlist, but maintaining it ma
 `pi-hide-providers` gives you a blocklist that **completely removes** models from all lists — not an allowlist, not a scoped subset:
 
 - Define hide rules in a config file (`~/.pi/agent/hide-providers.json` or `.pi/hide-providers.json`)
-- On session start, the extension patches pi’s underlying `ModelRuntime` accessors (with a `ModelRegistry` fallback for older pi versions) to filter out hidden models
+- At load time, the extension patches pi’s underlying `ModelRuntime` prototype so hide rules apply before any session event fires — `pi --list-models` loads extensions but exits before `session_start` is emitted
+- On session start, the extension additionally patches the session’s `ModelRuntime` instance accessors (with a `ModelRegistry` fallback for older pi versions) to filter out hidden models
 - The `/model` selector, `Ctrl+P` cycling, `--list-models`, and session restoration all see only visible models
 - `/hide-models reset` removes the runtime/registry patch — all models return immediately
 - Changes via `/hide-models add` and `/hide-models remove` take effect immediately (no reload needed)
@@ -140,6 +141,8 @@ Session starts
 The SDK doesn't provide a mechanism to remove models from the registry — `registerProvider({ models: [] })` is treated as "no models to register" (override-only), not "remove all models." Monkey-patching the accessor methods is the only way to completely remove models from all lists without touching `settings.json`.
 
 The patches survive model catalog refreshes because they wrap the runtime accessors rather than a model snapshot. On reload, the extension detects an existing patch and updates its rules source.
+
+The prototype-level patch exists because `pi --list-models` (and CLI `--model`/default-model resolution) run before any session mode calls `bindExtensions()`, so `session_start` never fires on that path. The prototype and instance patches share the same patch protocol, so they compose idempotently, and `getUnfilteredModels` fully unwraps both to keep the interactive selector listing every model.
 
 ## Comparison with Alternatives
 
