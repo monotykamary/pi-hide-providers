@@ -76,6 +76,8 @@ Create `~/.pi/agent/hide-providers.json` (global) or `.pi/hide-providers.json` (
 
 Project config (`.pi/hide-providers.json`) takes priority over global config (`~/.pi/agent/hide-providers.json`).
 
+Commands will not overwrite invalid config. Writers use a short-lived `<config>.lock` directory beside the actual config file. If a crash leaves it behind, remove the empty lock directory only after all writers have stopped.
+
 ## Installation
 
 **With `pi install`** (recommended):

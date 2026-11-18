@@ -18,7 +18,9 @@ import {
   type PatchedRegistry,
   unpatchRegistry,
 } from "./src/model-filter.js";
-import { readFileSync, writeFileSync, existsSync, mkdirSync } from "node:fs";
+import { lstatSync } from "node:fs";
+import { readJsonConfig, updateJsonConfig } from "./src/config-file.js";
+import { installMethodPatch } from "./src/method-patch.js";
 import { join } from "node:path";
 
 /**
@@ -37,46 +39,50 @@ import { join } from "node:path";
 const globalConfigDir = getAgentDir();
 const globalConfigPath = join(globalConfigDir, CONFIG_FILENAME);
 
-function getProjectConfigPath(cwd: string): string {
-  return join(cwd, CONFIG_DIR_NAME, CONFIG_FILENAME);
-}
-
-// Read config from disk (project overrides global)
-function readConfig(cwd: string): HideProvidersConfig {
-  const projectPath = getProjectConfigPath(cwd);
-  const path = existsSync(projectPath) ? projectPath : globalConfigPath;
-
-  if (!existsSync(path)) {
-    return { hide: [] };
-  }
-
+function configPathFor(cwd: string): string {
+  const projectPath = join(cwd, CONFIG_DIR_NAME, CONFIG_FILENAME);
   try {
-    const raw = readFileSync(path, "utf8");
-    const parsed = JSON.parse(raw) as HideProvidersConfig;
-    if (!Array.isArray(parsed.hide)) {
-      return { hide: [] };
-    }
-    return { hide: deduplicateRules(parsed.hide) };
+    // Treat a symlink as a project config even before its target is created.
+    lstatSync(projectPath);
+    return projectPath;
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
+    return globalConfigPath;
+  }
+}
+
+function configRules(config: Record<string, unknown> | undefined, path: string): HideRule[] {
+  if (config === undefined) return [];
+  if (!Array.isArray(config.hide) || !config.hide.every((rule: unknown): rule is HideRule => {
+    if (!rule || typeof rule !== "object" || !("provider" in rule)) return false;
+    return typeof rule.provider === "string" && rule.provider.length > 0 &&
+      (!("model" in rule) || typeof rule.model === "string");
+  })) {
+    throw new Error(`Expected a valid hide rule array in ${path}`);
+  }
+  return deduplicateRules(config.hide);
+}
+
+function readRules(cwd: string): HideRule[] {
+  try {
+    const path = configPathFor(cwd);
+    return configRules(readJsonConfig(path), path);
   } catch {
-    return { hide: [] };
+    // Startup remains tolerant; mutations below require a valid source.
+    return [];
   }
 }
 
-// Write config to disk
-function writeConfig(cwd: string, config: HideProvidersConfig): string {
-  const projectPath = getProjectConfigPath(cwd);
-  const path = existsSync(getProjectConfigPath(cwd)) ? projectPath : globalConfigPath;
-  const dir = path === projectPath ? join(cwd, CONFIG_DIR_NAME) : globalConfigDir;
-
-  if (!existsSync(dir)) {
-    mkdirSync(dir, { recursive: true });
-  }
-
-  writeFileSync(path, JSON.stringify(config, null, 2) + "\n", "utf8");
-  return path;
+function updateRules(cwd: string, update: (rules: HideRule[]) => HideRule[]) {
+  const path = configPathFor(cwd);
+  let rules: HideRule[] = [];
+  updateJsonConfig(path, (config) => {
+    const current = configRules(config, path);
+    rules = update(current);
+    return rules === current ? undefined : ({ ...config, hide: rules } satisfies HideProvidersConfig);
+  });
+  return { rules, path };
 }
-
-import { installMethodPatch } from "./src/method-patch.js";
 
 // Extension
 
@@ -92,8 +98,7 @@ export default function (pi: ExtensionAPI) {
   });
 
   pi.on("session_start", async (_event, ctx) => {
-    const config = readConfig(ctx.cwd);
-    currentRules = config.hide;
+    currentRules = readRules(ctx.cwd);
 
     const registry = ctx.modelRegistry as unknown as PatchedRegistry;
     if (activeRegistry && activeRegistry !== registry) unpatchRegistry(activeRegistry);
@@ -135,9 +140,13 @@ export default function (pi: ExtensionAPI) {
       return matches.length > 0 ? matches.map((s) => ({ value: s, label: s })) : null;
     },
     handler: async (args, ctx) => {
-      await handleHideCommand(ctx, args.trim(), currentRules, (rules) => {
-        currentRules = rules;
-      });
+      try {
+        await handleHideCommand(ctx, args.trim(), currentRules, (rules) => {
+          currentRules = rules;
+        });
+      } catch (error) {
+        ctx.ui.notify(`Could not update hide rules: ${String(error)}`, "error");
+      }
     },
   });
 }
@@ -183,8 +192,9 @@ async function handleHideCommand(
       return;
     }
 
-    const updated = deduplicateRules([...currentRules, rule]);
-    const configPath = writeConfig(ctx.cwd, { hide: updated });
+    const { rules: updated, path: configPath } = updateRules(ctx.cwd, (rules) =>
+      deduplicateRules([...rules, rule]),
+    );
     setRules(updated);
     patchRegistry(ctx.modelRegistry as unknown as PatchedRegistry, () => updated);
     ctx.ui.notify(
@@ -214,15 +224,17 @@ async function handleHideCommand(
     }
 
     const key = formatRule(rule);
-    const before = currentRules.length;
-    const updated = currentRules.filter((r) => formatRule(r) !== key);
-
-    if (updated.length === before) {
+    let removed = false;
+    const { rules: updated } = updateRules(ctx.cwd, (rules) => {
+      const next = rules.filter((r) => formatRule(r) !== key);
+      removed = next.length !== rules.length;
+      return removed ? next : rules;
+    });
+    if (!removed) {
       ctx.ui.notify(`Rule not found: ${key}`, "warning");
       return;
     }
 
-    writeConfig(ctx.cwd, { hide: updated });
     setRules(updated);
     const registry = ctx.modelRegistry as unknown as PatchedRegistry;
     if (updated.length > 0) patchRegistry(registry, () => updated);
@@ -343,12 +355,14 @@ async function showHideSelector(
     if (idx < 0) return;
     const m = models[idx];
     if (!m) return;
-    const matches = (r: HideRule) => r.provider === m.provider && r.model === m.id;
-    const hasExact = currentRules.some(matches);
-    const newRules = hasExact
-      ? currentRules.filter((r) => !matches(r))
-      : deduplicateRules([...currentRules, { provider: m.provider, model: m.id }]);
-    const configPath = writeConfig(ctx.cwd, { hide: newRules });
+    const rule = { provider: m.provider, model: m.id };
+    const key = formatRule(rule);
+    const hadExact = currentRules.some((r) => formatRule(r) === key);
+    // Apply the intent from the displayed state, not a second toggle on disk.
+    const { rules: newRules, path: configPath } = updateRules(ctx.cwd, (rules) => hadExact
+      ? rules.filter((r) => formatRule(r) !== key)
+      : deduplicateRules([...rules, rule]),
+    );
     setRules(newRules);
     if (newRules.length === 0) {
       unpatchRegistry(registry);
@@ -359,7 +373,7 @@ async function showHideSelector(
     } else {
       patchRegistry(registry, () => newRules);
       ctx.ui.notify(
-        `Model ${m.name} ${hasExact ? "visible" : "hidden"}. ${newRules.length} rule(s) active (config: ${configPath}). Run /hide-models again for more.`,
+        `Model ${m.name} ${isHidden(newRules, m.provider, m.id) ? "hidden" : "visible"}. ${newRules.length} rule(s) active (config: ${configPath}). Run /hide-models again for more.`,
         "info",
       );
     }
@@ -397,9 +411,17 @@ async function showHideSelector(
     return;
   }
 
-  // Apply the new rules
-  const newRules = result.rules;
-  const configPath = writeConfig(ctx.cwd, { hide: newRules });
+  // Merge only the selector's changes; it may have been open while another
+  // process added or removed rules.
+  const before = new Set(currentRules.map(formatRule));
+  const after = new Set(result.rules.map(formatRule));
+  const removed = new Set([...before].filter((rule) => !after.has(rule)));
+  const added = result.rules.filter((rule) => !before.has(formatRule(rule)));
+  const { rules: newRules, path: configPath } = updateRules(ctx.cwd, (rules) =>
+    removed.size || added.length
+      ? deduplicateRules([...rules.filter((rule) => !removed.has(formatRule(rule))), ...added])
+      : rules,
+  );
   setRules(newRules);
 
   if (newRules.length === 0) {
